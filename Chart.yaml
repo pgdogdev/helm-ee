@@ -1,6 +1,6 @@
 apiVersion: v2
 name: pgdog-control
-description: PgDog Cloud Control Panel
+description: PgDog Control
 type: application
-version: 0.1.9
-appVersion: "v2026-03-26"
+version: 0.1.10
+appVersion: "v2026-04-06"
