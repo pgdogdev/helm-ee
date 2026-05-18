@@ -1,15 +1,15 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ .Release.Name }}-control
+  name: {{ include "pgdog-control.control.fullname" . }}
   labels:
-    app: {{ .Release.Name }}-control
+    {{- include "pgdog-control.labels" . | nindent 4 }}
 spec:
   type: ClusterIP
   ports:
   - port: 80
-    targetPort: 8080
+    targetPort: {{ .Values.control.port }}
     protocol: TCP
     name: http
   selector:
-    app: {{ .Release.Name }}-control
+    {{- include "pgdog-control.selectorLabels" . | nindent 4 }}

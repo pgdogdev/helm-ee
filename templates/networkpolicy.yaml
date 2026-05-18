@@ -2,13 +2,13 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ .Release.Name }}-control
+  name: {{ include "pgdog-control.control.fullname" . }}
   labels:
-    app: {{ .Release.Name }}-control
+    {{- include "pgdog-control.labels" . | nindent 4 }}
 spec:
   podSelector:
     matchLabels:
-      app: {{ .Release.Name }}-control
+      {{- include "pgdog-control.selectorLabels" . | nindent 6 }}
   policyTypes:
   - Ingress
   - Egress
@@ -19,12 +19,12 @@ spec:
           kubernetes.io/metadata.name: ingress-nginx
     ports:
     - protocol: TCP
-      port: 8080
+      port: {{ .Values.control.port }}
   egress:
   - to:
     - podSelector:
         matchLabels:
-          app: {{ .Release.Name }}-redis
+          {{- include "pgdog-control.redis.selectorLabels" . | nindent 10 }}
     ports:
     - protocol: TCP
       port: 6379
@@ -61,13 +61,13 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ .Release.Name }}-redis
+  name: {{ include "pgdog-control.redis.fullname" . }}
   labels:
-    app: {{ .Release.Name }}-redis
+    {{- include "pgdog-control.redis.labels" . | nindent 4 }}
 spec:
   podSelector:
     matchLabels:
-      app: {{ .Release.Name }}-redis
+      {{- include "pgdog-control.redis.selectorLabels" . | nindent 6 }}
   policyTypes:
   - Ingress
   - Egress
@@ -75,7 +75,7 @@ spec:
   - from:
     - podSelector:
         matchLabels:
-          app: {{ .Release.Name }}-control
+          {{- include "pgdog-control.selectorLabels" . | nindent 10 }}
     ports:
     - protocol: TCP
       port: 6379

@@ -1,11 +1,11 @@
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: {{ .Release.Name }}-redis
+  name: {{ include "pgdog-control.redis.fullname" . }}
   labels:
-    app: {{ .Release.Name }}-redis
+    {{- include "pgdog-control.redis.labels" . | nindent 4 }}
 spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app: {{ .Release.Name }}-redis
+      {{- include "pgdog-control.redis.selectorLabels" . | nindent 6 }}

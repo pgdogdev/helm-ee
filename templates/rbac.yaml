@@ -1,0 +1,102 @@
+{{- if .Values.control.rbac.create -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "pgdog-control.control.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgdog-control.labels" . | nindent 4 }}
+  {{- with .Values.control.aws.roleArn }}
+  annotations:
+    eks.amazonaws.com/role-arn: {{ . | quote }}
+  {{- end }}
+---
+# Cluster-scoped because control2 lists namespaces and reads workloads
+# across all namespaces (Api::all in src/models/deployment/kube/client.rs).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "pgdog-control.control.fullname" . }}
+  labels:
+    {{- include "pgdog-control.labels" . | nindent 4 }}
+rules:
+  # control2 lists/reads these cluster-wide (Api::all) to render the
+  # workload, services, and pod views across every namespace.
+  - apiGroups: [""]
+    resources: ["namespaces", "configmaps", "secrets", "services"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  # /api/web/deployments/{id}/logs streams from pod stdout.
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  # `watch` powers src/models/deployment/kube/watcher.rs (event-driven
+  # refresh). Read-only cluster-wide; write verbs (patch for rollout
+  # restart) live in the namespace-scoped Role below so they're confined
+  # to `writeNamespaces`.
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "pgdog-control.control.fullname" . }}
+  labels:
+    {{- include "pgdog-control.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "pgdog-control.control.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "pgdog-control.control.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- range $ns := .Values.control.rbac.writeNamespaces }}
+---
+# Namespace-scoped write access for workloads control2 manages.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "pgdog-control.control.fullname" $ }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "pgdog-control.labels" $ | nindent 4 }}
+rules:
+  # Workload resources the PgDog chart renders in each install namespace
+  # — kept in lockstep with `pgdog-helm/templates/` (and with HELM_KINDS
+  # in src/models/deployment/kube/can_i/helm.rs, which is what the can-i
+  # report audits). Adding a new kind here without updating either side
+  # produces silent gaps.
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets", "services", "serviceaccounts"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "pgdog-control.control.fullname" $ }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "pgdog-control.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "pgdog-control.control.fullname" $ }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "pgdog-control.control.serviceAccountName" $ }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+{{- end }}

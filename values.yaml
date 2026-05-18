@@ -1,10 +1,48 @@
-env:
-  # DATABASE_URL: ""
-  # GOOGLE_CLIENT_ID: ""
-  # GOOGLE_CLIENT_SECRET: ""
-  # SESSION_KEY: ""
+image:
+  repository: ghcr.io/pgdogdev/pgdog-enterprise/control
+  # tag defaults to .Chart.AppVersion
+  tag: ""
+  pullPolicy: IfNotPresent
+  pullSecrets: []
 
 control:
+  port: 8080
+  aws:
+    # IRSA role for AWS API access (RDS/CloudWatch). When set, the
+    # ServiceAccount is annotated with eks.amazonaws.com/role-arn so the
+    # EKS pod-identity webhook injects AWS_ROLE_ARN +
+    # AWS_WEB_IDENTITY_TOKEN_FILE into the container, and the AWS SDK
+    # exchanges the projected SA token for temporary credentials via STS.
+    # Requires that an OIDC provider for the cluster is registered in IAM,
+    # and that the role's trust policy permits this SA
+    # (system:serviceaccount:<ns>:<release>-control).
+    roleArn: ""
+    # Static IAM-user credentials for testing against AWS from a cluster
+    # without IRSA (minikube, kind). When accessKeyId is set the chart
+    # renders a `<release>-aws-creds` Secret and the deployment loads it
+    # via envFrom. Leave empty in EKS — roleArn above is preferred.
+    accessKeyId: ""
+    secretAccessKey: ""
+    sessionToken: ""            # optional; only for temporary credentials
+    # AWS region the SDK should target. Emitted as AWS_REGION on the
+    # container. Required when the pod isn't on an EKS node whose IMDS
+    # exposes one.
+    region: ""
+  rbac:
+    # Create a ServiceAccount, ClusterRole, and ClusterRoleBinding granting
+    # the control pod read access to namespaces, deployments, statefulsets,
+    # configmaps, and secrets across the cluster. Required for the Kube
+    # workload inspector in the UI.
+    create: true
+    # Override the ServiceAccount name. When empty, falls back to
+    # `<release>-control`.
+    serviceAccountName: ""
+    # Namespaces where control2 is allowed to create/update/patch/delete
+    # workloads (deployments, statefulsets, configmaps, secrets, services).
+    # A Role + RoleBinding is generated in each listed namespace. Empty
+    # means no write access anywhere — list the release namespace
+    # explicitly if you want control to manage workloads alongside itself.
+    writeNamespaces: []
   resources:
     requests:
       memory: "256Mi"
@@ -12,6 +50,46 @@ control:
     limits:
       memory: "4Gi"
       cpu: "1000m"
+  # Runtime configuration written to /etc/pgdog-control/control.toml.
+  # Mirrors control2/src/config.rs. Every field is optional — anything left
+  # unset falls back to the Rust-side default. Field names match the TOML
+  # keys (snake_case) so values are passed through verbatim.
+  config:
+    rds: {}
+      # refresh_interval_secs: 60
+    kube: {}
+      # refresh_interval_secs: 15
+    dns: {}
+      # refresh_interval_secs: 30
+    cloudwatch: {}
+      # refresh_interval_secs: 60
+      # lookback_secs: 3600
+      # period_secs: 60
+    store: {}
+      # tick_secs: 1
+      # stale_after_secs: 5
+      # evict_after_secs: 60
+      # metrics_retention_secs: 300
+    helm: {}
+      # chart: pgdog
+      # repo: pgdogdev
+    auth: {}
+      # cookie_secret: ""               # optional; random key generated at boot when absent
+      # redirect_base_url: ""           # e.g. https://control.example.com
+      # cookie_secure: true
+      # session_max_age_days: 30
+      # state_max_age_min: 10
+      # github:
+      #   client_id: ""
+      #   client_secret: ""
+      #   allowed_orgs: []
+      # google:
+      #   client_id: ""
+      #   client_secret: ""
+      #   allowed_domains: []
+    redis: {}
+      # url: ""                          # optional; defaults to in-cluster redis
+      # save_interval_secs: 60
 
 redis:
   resources:
@@ -26,6 +104,7 @@ networkPolicy:
   enabled: false
 
 ingress:
+  enabled: true
   tls:
     enabled: true
   clusterIssuer: "letsencrypt-prod"

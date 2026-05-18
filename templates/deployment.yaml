@@ -1,20 +1,23 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Release.Name }}-control
+  name: {{ include "pgdog-control.control.fullname" . }}
   labels:
-    app: {{ .Release.Name }}-control
+    {{- include "pgdog-control.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.control.replicas | default 1 }}
   selector:
     matchLabels:
-      app: {{ .Release.Name }}-control
+      {{- include "pgdog-control.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       annotations:
-        kubectl.kubernetes.io/restartedAt: {{ now | date "2006-01-02T15:04:05Z07:00" | quote }}
+        # Roll the deployment when the rendered configmap changes. Uses
+        # a chart-scoped key so it doesn't fight `kubectl rollout restart`
+        # over `kubectl.kubernetes.io/restartedAt` under server-side apply.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
       labels:
-        app: {{ .Release.Name }}-control
+        {{- include "pgdog-control.selectorLabels" . | nindent 8 }}
     spec:
       {{- if gt (int (.Values.control.replicas | default 1)) 1 }}
       topologySpreadConstraints:
@@ -23,42 +26,58 @@ spec:
         whenUnsatisfiable: DoNotSchedule
         labelSelector:
           matchLabels:
-            app: {{ .Release.Name }}-control
+            {{- include "pgdog-control.selectorLabels" . | nindent 12 }}
       {{- end }}
+      {{- if .Values.control.rbac.create }}
+      serviceAccountName: {{ include "pgdog-control.control.serviceAccountName" . }}
+      automountServiceAccountToken: true
+      {{- else }}
       automountServiceAccountToken: false
+      {{- end }}
       securityContext:
         seccompProfile:
           type: RuntimeDefault
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
       - name: control
-        image: ghcr.io/pgdogdev/pgdog-enterprise/control:{{ .Values.image.tag | default .Chart.AppVersion }}
-        imagePullPolicy: Always
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
             drop: ["ALL"]
         env:
-        {{- range $key, $value := .Values.env }}
-        {{- if and (ne $key "REDIS_URL") (ne $key "FRONTEND_URL") (ne $key "GOOGLE_REDIRECT_URL") (ne $key "SESSION_KEY") }}
-        - name: {{ $key }}
-          value: {{ $value | quote }}
-        {{- end }}
-        {{- end }}
-        - name: SESSION_KEY
+        - name: CONTROL_CONFIG
+          value: /etc/pgdog-control/control.toml
+        # control2's whoami uses these to look up the Service that fronts
+        # this pod (src/models/deployment/kube/whoami.rs); without them
+        # endpoint() falls back to the host.minikube.internal dev URL.
+        - name: POD_NAME
           valueFrom:
-            secretKeyRef:
-              name: {{ .Release.Name }}-secrets
-              key: SESSION_KEY
-        - name: REDIS_URL
-          value: "redis://{{ .Release.Name }}-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
-        - name: FRONTEND_URL
-          value: "https://{{ .Values.ingress.host }}"
-        - name: GOOGLE_REDIRECT_URL
-          value: "https://{{ .Values.ingress.host }}/google/oauth/callback"
-        - name: GITHUB_REDIRECT_URL
-          value: "https://{{ .Values.ingress.host }}/github/oauth/callback"
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        {{- with .Values.control.aws.region }}
+        - name: AWS_REGION
+          value: {{ . | quote }}
+        {{- end }}
+        {{- if .Values.control.aws.accessKeyId }}
+        envFrom:
+        - secretRef:
+            name: {{ include "pgdog-control.control.fullname" . }}-aws-creds
+        {{- end }}
+        volumeMounts:
+        - name: config
+          mountPath: /etc/pgdog-control
+          readOnly: true
         ports:
-        - containerPort: 8080
+        - containerPort: {{ .Values.control.port }}
           name: http
         resources:
           requests:
@@ -70,7 +89,7 @@ spec:
         livenessProbe:
           httpGet:
             path: /healthz
-            port: 8080
+            port: {{ .Values.control.port }}
           initialDelaySeconds: 30
           periodSeconds: 30
           timeoutSeconds: 5
@@ -78,8 +97,15 @@ spec:
         readinessProbe:
           httpGet:
             path: /healthz
-            port: 8080
+            port: {{ .Values.control.port }}
           initialDelaySeconds: 30
           periodSeconds: 10
           timeoutSeconds: 3
           failureThreshold: 3
+      volumes:
+      - name: config
+        configMap:
+          name: {{ include "pgdog-control.control.fullname" . }}-config
+          items:
+          - key: control.toml
+            path: control.toml

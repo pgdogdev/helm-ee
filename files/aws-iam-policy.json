@@ -1,0 +1,32 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "RdsTopology",
+      "Effect": "Allow",
+      "Action": [
+        "rds:DescribeDBClusters",
+        "rds:DescribeDBInstances",
+        "rds:DescribeDBClusterParameters",
+        "rds:DescribeDBParameters"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudWatchMetrics",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:GetMetricData"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "Ec2InstanceTypeSpecs",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeInstanceTypes"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

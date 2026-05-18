@@ -1,9 +1,10 @@
+{{- if .Values.ingress.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ .Release.Name }}-control
+  name: {{ include "pgdog-control.control.fullname" . }}
   labels:
-    app: {{ .Release.Name }}-control
+    {{- include "pgdog-control.labels" . | nindent 4 }}
   {{- if .Values.ingress.tls.enabled }}
   annotations:
     cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer }}
@@ -25,6 +26,7 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: {{ .Release.Name }}-control
+            name: {{ include "pgdog-control.control.fullname" . }}
             port:
               number: 80
+{{- end }}
