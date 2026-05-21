@@ -16,7 +16,7 @@ metadata:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "pgdog-control.control.fullname" . }}
+  name: {{ include "pgdog-control.control.clusterFullname" . }}
   labels:
     {{- include "pgdog-control.labels" . | nindent 4 }}
 rules:
@@ -43,13 +43,13 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "pgdog-control.control.fullname" . }}
+  name: {{ include "pgdog-control.control.clusterFullname" . }}
   labels:
     {{- include "pgdog-control.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "pgdog-control.control.fullname" . }}
+  name: {{ include "pgdog-control.control.clusterFullname" . }}
 subjects:
   - kind: ServiceAccount
     name: {{ include "pgdog-control.control.serviceAccountName" . }}
@@ -60,7 +60,7 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ include "pgdog-control.control.fullname" $ }}
+  name: {{ include "pgdog-control.control.clusterFullname" $ }}
   namespace: {{ $ns }}
   labels:
     {{- include "pgdog-control.labels" $ | nindent 4 }}
@@ -86,14 +86,14 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ include "pgdog-control.control.fullname" $ }}
+  name: {{ include "pgdog-control.control.clusterFullname" $ }}
   namespace: {{ $ns }}
   labels:
     {{- include "pgdog-control.labels" $ | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: {{ include "pgdog-control.control.fullname" $ }}
+  name: {{ include "pgdog-control.control.clusterFullname" $ }}
 subjects:
   - kind: ServiceAccount
     name: {{ include "pgdog-control.control.serviceAccountName" $ }}

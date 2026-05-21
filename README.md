@@ -76,6 +76,90 @@ ingress:
 | `ingress.nginx.clusterIssuer` | Value of the `cert-manager.io/cluster-issuer` annotation (string, default `letsencrypt-prod`). |
 | `ingress.nginx.sslRedirect` | Value of the `nginx.ingress.kubernetes.io/ssl-redirect` annotation. Quoted because nginx expects a string (string, default `"true"`). |
 
+##### Finding an existing ClusterIssuer
+
+If cert-manager is already installed, list the available issuers:
+
+```sh
+kubectl get clusterissuers
+```
+
+The output looks like:
+
+```
+NAME                  READY   AGE
+letsencrypt-prod      True    42d
+letsencrypt-staging   True    42d
+```
+
+Use the `NAME` column verbatim as `ingress.nginx.clusterIssuer`. `ClusterIssuer` is cluster-scoped, so you don't need `-n`. The issuer doesn't have to live in the release namespace.
+
+Check that `READY` is `True`. If it isn't, run `kubectl describe clusterissuer <name>` and fix the issuer first. Otherwise the cert request will stay in `Pending`.
+
+If the command returns `error: the server doesn't have a resource type "clusterissuers"`, cert-manager isn't installed. See below.
+
+##### Installing ingress-nginx and cert-manager from scratch
+
+On a cluster with neither component, install both before installing this chart. Order matters. Install ingress-nginx first. Then cert-manager. Then create a ClusterIssuer.
+
+**1. ingress-nginx**
+
+```sh
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo update
+helm install ingress-nginx ingress-nginx/ingress-nginx \
+  --namespace ingress-nginx --create-namespace
+```
+
+Wait for the controller's Service to get an external address. On most managed clusters that's a `LoadBalancer`. You'll need its hostname or IP for DNS:
+
+```sh
+kubectl -n ingress-nginx get svc ingress-nginx-controller -w
+```
+
+Point `control.acme.com` (or whatever `ingress.host` you'll use) at that address before continuing. Let's Encrypt's HTTP-01 challenge fails if the hostname doesn't resolve to the controller.
+
+**2. cert-manager**
+
+```sh
+helm repo add jetstack https://charts.jetstack.io
+helm repo update
+helm install cert-manager jetstack/cert-manager \
+  --namespace cert-manager --create-namespace \
+  --set crds.enabled=true
+```
+
+**3. A ClusterIssuer**
+
+cert-manager doesn't ship issuers. You create them. Here's a minimal Let's Encrypt production issuer that solves HTTP-01 through ingress-nginx:
+
+```yaml
+# letsencrypt-prod.yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: you@acme.com
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: nginx
+```
+
+```sh
+kubectl apply -f letsencrypt-prod.yaml
+kubectl get clusterissuer letsencrypt-prod -w   # wait for READY=True
+```
+
+For first-time setup, point `server` at `https://acme-staging-v02.api.letsencrypt.org/directory` and create a separate `letsencrypt-staging` issuer. Staging has much higher rate limits. You can iterate on the install without burning prod issuance quota. Once it works, re-issue against the prod issuer.
+
+Once the issuer is `READY=True`, set `ingress.nginx.clusterIssuer: letsencrypt-prod` in `values.yaml` and install the chart.
+
 #### AWS ALB
 
 The AWS ALB preset targets the [AWS Load Balancer Controller](https://kubernetes-sigs.github.io/aws-load-balancer-controller/). The chart hardcodes `ingressClassName: alb` and `alb.ingress.kubernetes.io/target-type: ip`, and lets ACM terminate TLS at the load balancer. Supply an ACM cert ARN to get the HTTPS listener; leave it empty for HTTP-only.

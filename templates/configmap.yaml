@@ -1,4 +1,5 @@
-{{- $auth := .Values.control.config.auth | default dict -}}
+{{- $config := .Values.control.config | default dict -}}
+{{- $auth := $config.auth | default dict -}}
 {{- $cookieSecret := "" -}}
 {{- if $auth.cookie_secret -}}
 {{- $cookieSecret = $auth.cookie_secret -}}
@@ -16,14 +17,14 @@ metadata:
     {{- include "pgdog-control.labels" . | nindent 4 }}
 data:
   control.toml: |
-    {{- with .Values.control.config.rds }}
+    {{- with $config.rds }}
     [rds]
     {{- with .refresh_interval_secs }}
     refresh_interval_secs = {{ . }}
     {{- end }}
     {{- end }}
 
-    {{- with .Values.control.config.kube }}
+    {{- with $config.kube }}
 
     [kube]
     {{- with .refresh_interval_secs }}
@@ -31,7 +32,7 @@ data:
     {{- end }}
     {{- end }}
 
-    {{- with .Values.control.config.dns }}
+    {{- with $config.dns }}
 
     [dns]
     {{- with .refresh_interval_secs }}
@@ -39,7 +40,7 @@ data:
     {{- end }}
     {{- end }}
 
-    {{- with .Values.control.config.cloudwatch }}
+    {{- with $config.cloudwatch }}
 
     [cloudwatch]
     {{- with .refresh_interval_secs }}
@@ -53,7 +54,7 @@ data:
     {{- end }}
     {{- end }}
 
-    {{- with .Values.control.config.store }}
+    {{- with $config.store }}
 
     [store]
     {{- with .tick_secs }}
@@ -70,7 +71,7 @@ data:
     {{- end }}
     {{- end }}
 
-    {{- with .Values.control.config.helm }}
+    {{- with $config.helm }}
 
     [helm]
     {{- with .chart }}
@@ -127,7 +128,7 @@ data:
     {{- end }}
     {{- end }}
 
-    {{- $redis := .Values.control.config.redis | default dict }}
+    {{- $redis := $config.redis | default dict }}
     {{- $redisUrl := $redis.url | default (printf "redis://%s.%s.svc.cluster.local:6379" (include "pgdog-control.redis.fullname" .) .Release.Namespace) }}
 
     [redis]

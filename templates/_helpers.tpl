@@ -36,6 +36,17 @@ Resource names for each component (preserve existing names for compatibility).
 {{- printf "%s-control" .Release.Name | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
+{{/*
+Name for resources shared across releases — cluster-scoped objects
+(ClusterRole, ClusterRoleBinding) and the namespaced Role/RoleBinding
+written into each writeNamespace, which is reachable by every install
+of this chart. Includes the release namespace so multiple installs on
+the same cluster don't collide.
+*/}}
+{{- define "pgdog-control.control.clusterFullname" -}}
+{{- printf "%s-%s-control" .Release.Name .Release.Namespace | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
 {{- define "pgdog-control.redis.fullname" -}}
 {{- printf "%s-redis" .Release.Name | trunc 63 | trimSuffix "-" }}
 {{- end }}
