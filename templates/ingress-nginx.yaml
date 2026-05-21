@@ -1,9 +1,4 @@
-{{- if .Values.ingress.enabled }}
-{{- $mode := .Values.ingress.mode | default "default" }}
-{{- if not (has $mode (list "aws" "nginx" "default")) }}
-{{- fail (printf "ingress.mode must be one of: aws, nginx, default (got %q)" $mode) }}
-{{- end }}
-{{- if eq $mode "default" }}
+{{- if and .Values.ingress.enabled (eq (.Values.ingress.mode | default "default") "nginx") }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -13,17 +8,18 @@ metadata:
     {{- with .Values.ingress.labels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
-  {{- with .Values.ingress.annotations }}
+  {{- if .Values.ingress.nginx.tls.enabled }}
   annotations:
-    {{- toYaml . | nindent 4 }}
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.nginx.clusterIssuer }}
+    nginx.ingress.kubernetes.io/ssl-redirect: {{ .Values.ingress.nginx.sslRedirect | quote }}
   {{- end }}
 spec:
-  {{- with .Values.ingress.ingressClassName }}
-  ingressClassName: {{ . }}
-  {{- end }}
-  {{- with .Values.ingress.tls }}
+  ingressClassName: nginx
+  {{- if .Values.ingress.nginx.tls.enabled }}
   tls:
-    {{- toYaml . | nindent 4 }}
+  - hosts:
+    - {{ .Values.ingress.host }}
+    secretName: {{ .Release.Name }}-control-tls
   {{- end }}
   rules:
   - {{ with .Values.ingress.host }}host: {{ . }}
@@ -36,5 +32,4 @@ spec:
             name: {{ include "pgdog-control.control.fullname" . }}
             port:
               number: 80
-{{- end }}
 {{- end }}
