@@ -105,7 +105,57 @@ networkPolicy:
 
 ingress:
   enabled: true
-  tls:
-    enabled: true
-  clusterIssuer: "letsencrypt-prod"
-  sslRedirect: "true"
+  # mode selects the annotation / ingressClassName / TLS preset applied
+  # to the rendered Ingress. One of:
+  #   nginx   — ingress-nginx + cert-manager. TLS terminated at nginx
+  #             via a cert-manager-issued Secret. Driven by
+  #             ingress.nginx.*.
+  #   aws     — AWS Load Balancer Controller (ALB). TLS terminated at
+  #             the ALB using an ACM cert. Driven by ingress.aws.*.
+  #   default — no preset is applied. The chart only emits the rule that
+  #             routes to the control Service; provide your own
+  #             annotations, ingressClassName, and tls block via the
+  #             top-level keys below.
+  mode: nginx
+  # host is the external hostname routed to control2. Required when
+  # mode is "nginx" or "aws"; optional in "default" mode (omit to leave
+  # the rule unbound to a host).
+  # host: control.example.com
+  # labels are merged into metadata.labels on top of the chart's
+  # standard labels. Applied in all three modes.
+  labels: {}
+
+  # nginx-mode settings (ignored unless mode == "nginx").
+  nginx:
+    tls:
+      # When true, emits cert-manager.io/cluster-issuer +
+      # nginx.ingress.kubernetes.io/ssl-redirect annotations and a tls
+      # block referencing <release>-control-tls.
+      enabled: true
+    clusterIssuer: "letsencrypt-prod"
+    sslRedirect: "true"
+
+  # aws-mode settings (ignored unless mode == "aws").
+  aws:
+    # scheme controls whether the ALB is internet-facing or internal.
+    # Valid values: "internet-facing" or "internal".
+    scheme: "internet-facing"
+    # certificateArn is the ACM cert ARN attached to the HTTPS listener.
+    # Optional: when empty the ALB serves HTTP only (no 443 listener).
+    certificateArn: ""
+    # sslRedirect: when true and certificateArn is set, the ALB
+    # redirects HTTP:80 to HTTPS:443. Ignored when certificateArn is
+    # empty.
+    sslRedirect: true
+
+  # default-mode settings (ignored unless mode == "default"). Provide
+  # whatever your environment's ingress controller expects; the chart
+  # passes these through verbatim and adds nothing on top.
+  annotations: {}
+  ingressClassName: ""
+  # tls is rendered as-is under spec.tls — supply the full list of
+  # {hosts, secretName} entries your controller expects, e.g.:
+  #   tls:
+  #     - hosts: [control.example.com]
+  #       secretName: control-tls
+  tls: []

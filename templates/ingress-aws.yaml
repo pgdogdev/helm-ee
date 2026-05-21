@@ -1,0 +1,36 @@
+{{- if and .Values.ingress.enabled (eq (.Values.ingress.mode | default "default") "aws") }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "pgdog-control.control.fullname" . }}
+  labels:
+    {{- include "pgdog-control.labels" . | nindent 4 }}
+    {{- with .Values.ingress.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    alb.ingress.kubernetes.io/scheme: {{ .Values.ingress.aws.scheme | quote }}
+    alb.ingress.kubernetes.io/target-type: ip
+    {{- if .Values.ingress.aws.certificateArn }}
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/certificate-arn: {{ .Values.ingress.aws.certificateArn | quote }}
+    {{- if .Values.ingress.aws.sslRedirect }}
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    {{- end }}
+    {{- else }}
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+    {{- end }}
+spec:
+  ingressClassName: alb
+  rules:
+  - {{ with .Values.ingress.host }}host: {{ . }}
+    {{ end }}http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ include "pgdog-control.control.fullname" . }}
+            port:
+              number: 80
+{{- end }}

@@ -12,10 +12,24 @@ spec:
   template:
     metadata:
       annotations:
-        # Roll the deployment when the rendered configmap changes. Uses
-        # a chart-scoped key so it doesn't fight `kubectl rollout restart`
-        # over `kubectl.kubernetes.io/restartedAt` under server-side apply.
+        # Roll the deployment when any rendered config / secret content
+        # changes. Each annotation hashes the *template output*, not
+        # values directly, so transformations applied inside the
+        # template (defaults, lookups, randAlphaNum on first install)
+        # are accounted for. Chart-scoped keys avoid colliding with
+        # `kubectl rollout restart`'s `kubectl.kubernetes.io/restartedAt`
+        # under server-side apply.
+        #
+        # `checksum/config` covers control.toml — which includes the
+        # rendered `cookie_secret` — so auth/secret rotation already
+        # falls under this hash.
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if .Values.control.aws.accessKeyId }}
+        # AWS creds live in their own Secret, mounted via envFrom, so a
+        # config change there wouldn't otherwise propagate to running
+        # pods.
+        checksum/aws-creds: {{ include (print $.Template.BasePath "/aws-secret.yaml") . | sha256sum }}
+        {{- end }}
       labels:
         {{- include "pgdog-control.selectorLabels" . | nindent 8 }}
     spec:
