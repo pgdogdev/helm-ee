@@ -4,9 +4,10 @@
 {{- if $auth.cookie_secret -}}
 {{- $cookieSecret = $auth.cookie_secret -}}
 {{- else -}}
-{{- $existing := lookup "v1" "Secret" .Release.Namespace (printf "%s-secrets" .Release.Name) -}}
-{{- if and $existing (index $existing.data "cookie_secret") -}}
-{{- $cookieSecret = index $existing.data "cookie_secret" | b64dec -}}
+{{- $existing := (lookup "v1" "Secret" .Release.Namespace (printf "%s-secrets" .Release.Name)) | default dict -}}
+{{- $existingData := $existing.data | default dict -}}
+{{- if hasKey $existingData "cookie_secret" -}}
+{{- $cookieSecret = index $existingData "cookie_secret" | b64dec -}}
 {{- end -}}
 {{- end -}}
 apiVersion: v1
