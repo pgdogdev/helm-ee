@@ -67,6 +67,8 @@ spec:
           capabilities:
             drop: ["ALL"]
         env:
+        - name: HOME
+          value: /tmp
         - name: CONTROL_CONFIG
           value: /etc/pgdog-control/control.toml
         # control2's whoami uses these to look up the Service that fronts
