@@ -50,8 +50,8 @@ spec:
       {{- end }}
       securityContext:
         runAsNonRoot: true
-        runAsUser: 65534
-        runAsGroup: 65534
+        runAsUser: 1000
+        runAsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
       {{- with .Values.image.pullSecrets }}
@@ -67,8 +67,6 @@ spec:
           capabilities:
             drop: ["ALL"]
         env:
-        - name: HOME
-          value: /tmp
         - name: CONTROL_CONFIG
           value: /etc/pgdog-control/control.toml
         # control2's whoami uses these to look up the Service that fronts
