@@ -20,7 +20,7 @@ The PgDog deployment contains the following components:
 |-|-|
 | Deployment | PgDog control plane deployment, with one replica. |
 | Service | Service pointing to the deployment. Selector labels are configured automatically. |
-| Ingress | Three (3) types of ingress are supported. See [ingress](#ingress) for more details. |
+| Ingress / HTTPRoute | Four (4) routing modes are supported: Nginx, AWS ALB, Gateway API, and Default. See [ingress](#ingress) for more details. |
 | ConfigMap | Configuration for the control plane. |
 | Secret | Secret that stores the key used to encrypt authentication cookies. |
 | Service account, Cluster role, Cluster role bindings | Service account with RBAC to access select Kube APIs. See [RBAC](#rbac) for more details. |
@@ -35,22 +35,23 @@ metrics. The Redis deployment has the following components:
 
 ### Ingress
 
-The PgDog control plane has a web dashboard. It can be accessed through the Ingress the chart creates. The chart supports 3 kinds of ingress:
+The PgDog control plane has a web dashboard. It can be accessed through the Ingress or HTTPRoute the chart creates. The chart supports 4 modes:
 
 - Nginx
 - AWS ALB
+- Gateway API
 - Default
 
-Nginx and AWS ALB ingresses are presets, with set annotations that should work for most deployments. The Default ingress allows the user to configure all Ingress options (class, annotations, etc.).
+Nginx and AWS ALB are Ingress-based presets with set annotations that should work for most deployments. Gateway API renders an HTTPRoute instead of an Ingress — use it when traffic enters through a Gateway controller. The Default mode allows the user to configure all Ingress options (class, annotations, etc.).
 
-The mode is selected by `ingress.mode`. The chart renders exactly one Ingress, whose rule always routes `/` to the control Service on port 80. Only the metadata, `ingressClassName`, and `tls` differ between modes.
+The mode is selected by `ingress.mode`. In `nginx`, `aws`, and `default` modes, the chart renders exactly one Ingress, whose rule always routes `/` to the control Service on port 80. In `gateway` mode, the chart renders an HTTPRoute instead. Only one of these resources is created per install.
 
 All three modes share the options below:
 
 | Option | Description |
 |-|-|
 | `ingress.enabled` | Enable/disable the Ingress (bool, default `true`). |
-| `ingress.mode` | One of `nginx`, `aws`, or `default`. Defaults to `nginx`. |
+| `ingress.mode` | One of `nginx`, `aws`, `gateway`, or `default`. Defaults to `nginx`. |
 | `ingress.host` | External hostname, e.g. pgdog.acme.com. Required for Nginx and AWS ALB; optional for Default. |
 | `ingress.labels` | Extra `metadata.labels` merged on top of the chart's standard labels (map, default `{}`). |
 
@@ -180,6 +181,29 @@ ingress:
 | `ingress.aws.scheme` | `alb.ingress.kubernetes.io/scheme`. Either `internet-facing` or `internal` (string, default `internet-facing`). |
 | `ingress.aws.certificateArn` | ACM cert ARN attached to the HTTPS listener. Empty = HTTP-only ALB, no 443 listener (string, default `""`). |
 | `ingress.aws.sslRedirect` | When `true` and `certificateArn` is set, the ALB redirects HTTP:80 → HTTPS:443. Ignored when `certificateArn` is empty (bool, default `true`). |
+
+#### Gateway API
+
+The Gateway API mode is selected with `ingress.mode: gateway`. Instead of an Ingress, the chart renders an [HTTPRoute](https://gateway-api.sigs.k8s.io/api-types/httproute/) that attaches to an existing Gateway resource. Use this when your cluster routes traffic through a Gateway controller (Traefik, Envoy Gateway, AWS ALB via `gateway.k8s.aws`, etc.) and TLS is terminated at the Gateway or its backing load balancer.
+
+```yaml
+ingress:
+  enabled: true
+  mode: gateway
+  host: control.example.com
+  gateway:
+    name: traefik-gw
+    namespace: traefik
+    sectionName: web
+```
+
+| Option | Description |
+|-|-|
+| `ingress.gateway.name` | Name of the Gateway resource the HTTPRoute attaches to (string, required). |
+| `ingress.gateway.namespace` | Namespace of the Gateway resource (string, required). |
+| `ingress.gateway.sectionName` | Selects a specific listener on the Gateway. Leave empty to attach to all listeners that match the hostname (string, optional). |
+
+The chart does not create or manage the Gateway itself — that's expected to exist already. The HTTPRoute routes all paths (`/`) to the control Service on port 80, scoped to the hostname in `ingress.host`. TLS, certificates, and load balancer configuration are handled by the Gateway and its associated resources.
 
 ### Default
 
@@ -355,7 +379,16 @@ The control plane only reads from AWS. It never creates, modifies, or deletes an
       "Effect": "Allow",
       "Action": [
         "rds:DescribeDBClusters",
-        "rds:DescribeDBInstances"
+        "rds:DescribeDBInstances",
+        "rds:DescribeDBParameters"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "EC2InstanceTypes",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeInstanceTypes"
       ],
       "Resource": "*"
     },
@@ -372,6 +405,8 @@ The control plane only reads from AWS. It never creates, modifies, or deletes an
   ]
 }
 ```
+
+The control plane calls `rds:DescribeDBParameters` to display parameter-group settings for each instance, and `ec2:DescribeInstanceTypes` to look up the vCPU/memory specs of the underlying instance class (e.g. `db.r6g.xlarge` → 4 vCPU, 32 GiB). Without these two actions the RDS refresh fails with `AccessDenied` / `UnauthorizedOperation` and the database panel stays empty.
 
 If you want to lock it down further, both `rds:Describe*` actions support resource-level ARNs and you can scope CloudWatch via the `cloudwatch:namespace` condition key set to `AWS/RDS`.
 

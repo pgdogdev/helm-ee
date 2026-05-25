@@ -112,6 +112,9 @@ ingress:
   #             ingress.nginx.*.
   #   aws     — AWS Load Balancer Controller (ALB). TLS terminated at
   #             the ALB using an ACM cert. Driven by ingress.aws.*.
+  #   gateway — Gateway API HTTPRoute. Renders an HTTPRoute instead of
+  #             an Ingress. TLS is handled by the Gateway/LB. Driven by
+  #             ingress.gateway.*.
   #   default — no preset is applied. The chart only emits the rule that
   #             routes to the control Service; provide your own
   #             annotations, ingressClassName, and tls block via the
@@ -134,6 +137,20 @@ ingress:
       enabled: true
     clusterIssuer: "letsencrypt-prod"
     sslRedirect: "true"
+
+  # gateway-mode settings (ignored unless mode == "gateway").
+  # Renders a Gateway API HTTPRoute instead of an Ingress. Use this when
+  # traffic enters through a Gateway (Traefik, Envoy Gateway, AWS ALB
+  # via gateway.k8s.aws, etc.) and TLS is terminated at the Gateway or
+  # its backing load balancer.
+  gateway:
+    # name of the Gateway resource the HTTPRoute attaches to.
+    name: ""
+    # namespace of the Gateway resource.
+    namespace: ""
+    # sectionName selects a specific listener on the Gateway. Leave empty
+    # to attach to all listeners that match the hostname.
+    sectionName: ""
 
   # aws-mode settings (ignored unless mode == "aws").
   aws:
