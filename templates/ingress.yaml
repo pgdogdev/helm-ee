@@ -1,7 +1,7 @@
 {{- if .Values.ingress.enabled }}
 {{- $mode := .Values.ingress.mode | default "default" }}
-{{- if not (has $mode (list "aws" "nginx" "default")) }}
-{{- fail (printf "ingress.mode must be one of: aws, nginx, default (got %q)" $mode) }}
+{{- if not (has $mode (list "aws" "nginx" "gateway" "default")) }}
+{{- fail (printf "ingress.mode must be one of: aws, nginx, gateway, default (got %q)" $mode) }}
 {{- end }}
 {{- if eq $mode "default" }}
 apiVersion: networking.k8s.io/v1
