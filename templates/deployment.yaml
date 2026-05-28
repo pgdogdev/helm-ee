@@ -48,12 +48,10 @@ spec:
       {{- else }}
       automountServiceAccountToken: false
       {{- end }}
+      {{- with .Values.control.podSecurityContext }}
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
-        seccompProfile:
-          type: RuntimeDefault
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.image.pullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -62,10 +60,10 @@ spec:
       - name: control
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
+        {{- with .Values.control.containerSecurityContext }}
         securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop: ["ALL"]
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
         env:
         - name: CONTROL_CONFIG
           value: /etc/pgdog-control/control.toml

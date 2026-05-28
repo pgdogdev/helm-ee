@@ -50,6 +50,21 @@ control:
     limits:
       memory: "4Gi"
       cpu: "1000m"
+  # Pod-level securityContext for the control deployment.
+  # Defaults are PSS Restricted compliant.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  # Container-level securityContext for the control container.
+  # Defaults are PSS Restricted compliant.
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
   # Runtime configuration written to /etc/pgdog-control/control.toml.
   # Mirrors control2/src/config.rs. Every field is optional — anything left
   # unset falls back to the Rust-side default. Field names match the TOML
@@ -99,6 +114,22 @@ redis:
     limits:
       memory: "256Mi"
       cpu: "500m"
+  # Pod-level securityContext for the Redis deployment.
+  # Defaults are PSS Restricted compliant.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+    fsGroup: 999
+    seccompProfile:
+      type: RuntimeDefault
+  # Container-level securityContext for the Redis container.
+  # Defaults are PSS Restricted compliant.
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
 
 networkPolicy:
   enabled: false
