@@ -17,21 +17,17 @@ spec:
         cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
     spec:
       automountServiceAccountToken: false
+      {{- with .Values.redis.podSecurityContext }}
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 999
-        runAsGroup: 999
-        fsGroup: 999
-        seccompProfile:
-          type: RuntimeDefault
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
       - name: redis
         image: redis:7-alpine
+        {{- with .Values.redis.containerSecurityContext }}
         securityContext:
-          allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: true
-          capabilities:
-            drop: ["ALL"]
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
         ports:
         - containerPort: 6379
           name: redis
