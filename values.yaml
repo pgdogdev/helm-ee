@@ -62,6 +62,7 @@ control:
   # Defaults are PSS Restricted compliant.
   containerSecurityContext:
     allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
     capabilities:
       drop: ["ALL"]
   # Runtime configuration written to /etc/pgdog-control/control.toml.
@@ -113,6 +114,8 @@ redis:
     limits:
       memory: "256Mi"
       cpu: "500m"
+  # Pod-level securityContext for the Redis deployment.
+  # Defaults are PSS Restricted compliant.
   podSecurityContext:
     runAsNonRoot: true
     runAsUser: 999
@@ -120,6 +123,8 @@ redis:
     fsGroup: 999
     seccompProfile:
       type: RuntimeDefault
+  # Container-level securityContext for the Redis container.
+  # Defaults are PSS Restricted compliant.
   containerSecurityContext:
     allowPrivilegeEscalation: false
     readOnlyRootFilesystem: true

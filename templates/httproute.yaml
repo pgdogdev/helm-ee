@@ -22,8 +22,8 @@ spec:
   parentRefs:
   - group: gateway.networking.k8s.io
     kind: Gateway
-    name: {{ .Values.ingress.gateway.name }}
-    namespace: {{ .Values.ingress.gateway.namespace }}
+    name: {{ .Values.ingress.gateway.name | quote }}
+    namespace: {{ .Values.ingress.gateway.namespace | quote }}
     {{- with .Values.ingress.gateway.sectionName }}
     sectionName: {{ . }}
     {{- end }}
