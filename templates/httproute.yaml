@@ -1,4 +1,10 @@
 {{- if and .Values.ingress.enabled (eq (.Values.ingress.mode | default "default") "gateway") }}
+{{- if not .Values.ingress.gateway.name }}
+{{- fail "ingress.gateway.name is required when ingress.mode=gateway" }}
+{{- end }}
+{{- if not .Values.ingress.gateway.namespace }}
+{{- fail "ingress.gateway.namespace is required when ingress.mode=gateway" }}
+{{- end }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
