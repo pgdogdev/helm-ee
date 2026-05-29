@@ -8,8 +8,10 @@
 #      then check the remaining per-mode deps (read-only)
 #   3. print the commands to install any missing prerequisites
 #      (ingress-nginx, cert-manager, a Let's Encrypt ClusterIssuer)
-#   4. print the `helm` commands to install the chart
-#   5. list Route53 hosted zones (read-only) and print the `aws` command
+#   4. optionally check EKS OIDC / IAM provider readiness and print the IAM
+#      role commands for RDS / CloudWatch access
+#   5. print the `helm` commands to install the chart
+#   6. list Route53 hosted zones (read-only) and print the `aws` command
 #      to create the DNS record pointing the hostname at the load balancer
 #
 # Every mutating action is emitted as a copy-pasteable command for you to
@@ -24,12 +26,18 @@ CHART="pgdogdev-ee/pgdog-control"
 
 RELEASE="control"
 NAMESPACE="default"
+NAMESPACE_FROM_FLAG=0
 MODE=""               # nginx | aws  (chosen interactively when unset)
 MODE_FROM_FLAG=0
 HOST=""
 VALUES_FILE=""
 ACME_EMAIL=""
 ASSUME_YES=0
+AWS_REGION=""
+AWS_CLUSTER=""
+AWS_ROLE_NAME="pgdog-control"
+AWS_ROLE_ARN=""
+CONFIGURE_AWS=0
 
 # state filled in by the checks
 MISSING_NGINX=0; MISSING_CERTMGR=0; MISSING_ISSUER=0
@@ -39,7 +47,9 @@ REQUIRED_MISSING=0
 ZONE_ID=""; ZONE_NAME=""
 GH_CLIENT_ID=""; GH_CLIENT_SECRET=""; GH_ALLOWED_ORGS=""
 GATEWAY_NAME=""; GATEWAY_NAMESPACE=""; GATEWAY_SECTION=""
+AWS_ACCOUNT_ID=""; OIDC_HOST=""; IAM_OIDC_PROVIDER_EXISTS=0
 STEP=0
+LOADING_ACTIVE=0
 
 # ───────────────────────────── colors / ui ─────────────────────────────
 if [[ -t 1 ]] && command -v tput >/dev/null 2>&1 && [[ "$(tput colors 2>/dev/null || echo 0)" -ge 8 ]]; then
@@ -64,20 +74,37 @@ banner() {
 step() { printf "\n${BLUE}${BOLD}%s${RESET}  ${BOLD}%s${RESET}\n" "$1" "$2"; }
 # heading <title> — a numbered step; counter advances so the order can vary by mode.
 heading() { STEP=$((STEP + 1)); step "Step $STEP" "$1"; }
-info() { printf "  ${BLUE}${INFO_SYM}${RESET} %s\n" "$1"; }
-ok()   { printf "  ${GREEN}${CHECK}${RESET} %s\n" "$1"; }
-warn() { printf "  ${YELLOW}${WARN_SYM}${RESET} %s\n" "$1"; }
-die()  { printf "\n${RED}${BOLD}Aborting:${RESET} %s\n" "$1" >&2; exit 1; }
+clear_loading() {
+  if (( LOADING_ACTIVE )) && [[ -t 1 ]]; then
+    printf "\r\033[K"
+  fi
+  LOADING_ACTIVE=0
+}
+loading() {
+  if [[ -t 1 ]]; then
+    printf "  ${BLUE}…${RESET} %-22s ${DIM}checking...${RESET}\r" "$1"
+    LOADING_ACTIVE=1
+  else
+    printf "  ${BLUE}${INFO_SYM}${RESET} %-22s ${DIM}checking...${RESET}\n" "$1"
+  fi
+}
+info() { clear_loading; printf "  ${BLUE}${INFO_SYM}${RESET} %s\n" "$1"; }
+ok()   { clear_loading; printf "  ${GREEN}${CHECK}${RESET} %s\n" "$1"; }
+warn() { clear_loading; printf "  ${YELLOW}${WARN_SYM}${RESET} %s\n" "$1"; }
+die()  { clear_loading; printf "\n${RED}${BOLD}Aborting:${RESET} %s\n" "$1" >&2; exit 1; }
 
 # snippet <multi-line-string> — render a copy-paste command/manifest block
 snippet() {
   printf "\n"
-  while IFS= read -r _l; do printf "      ${BOLD}%s${RESET}\n" "$_l"; done <<< "$1"
+  while IFS= read -r _l; do
+    printf "${BOLD}%s${RESET}\n" "$_l"
+  done <<< "$1"
   printf "\n"
 }
 
 # row <ok|bad|warn> <name> <detail>
 row() {
+  clear_loading
   local color sym
   case "$1" in
     ok)   color=$GREEN;  sym=$CHECK ;;
@@ -98,6 +125,10 @@ crd_exists() { kubectl get crd "$1" >/dev/null 2>&1; }
 ask_yn() { # ask_yn "prompt" -> 0 yes / 1 no
   local r; printf "  ${YELLOW}?${RESET} %s ${DIM}[y/N]${RESET} " "$1"; read -r r
   [[ "$r" =~ ^[Yy]$ ]]
+}
+
+valid_namespace() {
+  [[ ${#1} -le 63 && "$1" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]]
 }
 
 # Best-effort open a URL in the host browser (no-op if no opener available).
@@ -146,6 +177,34 @@ choose_mode() {
   ok "Ingress mode: ${BOLD}${MODE}${RESET}"
 }
 
+# ───────────────────────── namespace selection ─────────────────────────
+# Asks which namespace the control chart should be installed into. This
+# namespace is also used for generated ServiceAccount trust in IRSA.
+prompt_namespace() {
+  if (( NAMESPACE_FROM_FLAG )); then
+    ok "Namespace: ${BOLD}${NAMESPACE}${RESET} ${DIM}(from --namespace)${RESET}"
+    return 0
+  fi
+  if (( ASSUME_YES )); then
+    ok "Namespace: ${BOLD}${NAMESPACE}${RESET}"
+    return 0
+  fi
+
+  step "Namespace" "Kubernetes namespace for the control chart"
+  local ns
+  while true; do
+    printf "  ${YELLOW}?${RESET} Install namespace ${DIM}[%s]${RESET}: " "$NAMESPACE"
+    read -r ns
+    ns="${ns:-$NAMESPACE}"
+    if valid_namespace "$ns"; then
+      NAMESPACE="$ns"
+      ok "Namespace: ${BOLD}${NAMESPACE}${RESET}"
+      return 0
+    fi
+    warn "Use a valid Kubernetes namespace name: lowercase alphanumerics and '-', up to 63 chars."
+  done
+}
+
 # ─────────────────────────── gateway details ───────────────────────────
 # Gateway mode renders an HTTPRoute that attaches to an existing Gateway.
 # Prompt for that Gateway's name/namespace (required) and listener section
@@ -157,7 +216,9 @@ prompt_gateway() {
   step "Gateway" "Gateway the HTTPRoute attaches to"
   local def_ns="" def_name="" line
   if (( CLUSTER_OK )); then
+    loading "Gateway"
     line=$(kubectl get gateways.gateway.networking.k8s.io -A --no-headers 2>/dev/null | head -n1 || true)
+    clear_loading
     def_ns=$(awk '{print $1}' <<< "$line")
     def_name=$(awk '{print $2}' <<< "$line")
     [[ -n "$def_name" ]] && info "Detected Gateway: ${BOLD}${def_name}${RESET} in ${BOLD}${def_ns}${RESET}"
@@ -253,6 +314,110 @@ Authorization callback URL: ${callback}"
   fi
 }
 
+# ──────────────────────────── AWS / IRSA setup ─────────────────────────
+# The chart already supports EKS IRSA through control.aws.roleArn. This
+# section checks whether the current EKS cluster has an IAM OIDC provider
+# registered, then prints the commands to create the IAM role and attach the
+# read-only RDS / CloudWatch policy the control plane needs.
+derive_eks_from_context() {
+  local ctx cluster_ref
+  ctx=$(kubectl config current-context 2>/dev/null || true)
+  cluster_ref=$(kubectl config view --minify -o jsonpath='{.contexts[0].context.cluster}' 2>/dev/null || true)
+  for ref in "$ctx" "$cluster_ref"; do
+    if [[ "$ref" =~ ^arn:aws[^:]*:eks:([^:]+):[0-9]+:cluster/(.+)$ ]]; then
+      [[ -z "$AWS_REGION" ]] && AWS_REGION="${BASH_REMATCH[1]}"
+      [[ -z "$AWS_CLUSTER" ]] && AWS_CLUSTER="${BASH_REMATCH[2]}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+discover_eks_oidc() {
+  IAM_OIDC_PROVIDER_EXISTS=0
+  [[ -n "$AWS_CLUSTER" && -n "$AWS_REGION" ]] || return 1
+  if ! have aws; then return 1; fi
+
+  AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || true)
+  OIDC_HOST=$(aws eks describe-cluster --name "$AWS_CLUSTER" --region "$AWS_REGION" \
+    --query 'cluster.identity.oidc.issuer' --output text 2>/dev/null | sed 's|^https://||' || true)
+
+  if [[ -z "$AWS_ACCOUNT_ID" || -z "$OIDC_HOST" || "$OIDC_HOST" == "None" ]]; then
+    return 1
+  fi
+
+  local provider_arn="arn:aws:iam::${AWS_ACCOUNT_ID}:oidc-provider/${OIDC_HOST}"
+  if aws iam get-open-id-connect-provider --open-id-connect-provider-arn "$provider_arn" >/dev/null 2>&1; then
+    IAM_OIDC_PROVIDER_EXISTS=1
+  fi
+  return 0
+}
+
+setup_aws_access() {
+  heading "AWS access for RDS  ${DIM}(optional, EKS IRSA)${RESET}"
+  if [[ -n "$AWS_ROLE_ARN" ]]; then
+    CONFIGURE_AWS=1
+    ok "Using IAM role: ${BOLD}${AWS_ROLE_ARN}${RESET}"
+    [[ -n "$AWS_REGION" ]] || derive_eks_from_context || true
+    [[ -n "$AWS_REGION" ]] && ok "AWS region: ${BOLD}${AWS_REGION}${RESET}"
+    if [[ -n "$AWS_CLUSTER" && -n "$AWS_REGION" ]] && discover_eks_oidc; then
+      if (( IAM_OIDC_PROVIDER_EXISTS )); then
+        row ok "IAM OIDC provider" "registered in account $AWS_ACCOUNT_ID"
+      else
+        row warn "IAM OIDC provider" "not registered in account $AWS_ACCOUNT_ID"
+      fi
+    fi
+    return 0
+  fi
+
+  if (( ASSUME_YES && CONFIGURE_AWS == 0 )); then
+    info "Skipped — pass --aws-role-arn for an existing role or --aws-role-name with --aws-cluster/--aws-region to print role creation commands."
+    return 0
+  fi
+  if ! have aws; then
+    if (( CONFIGURE_AWS )); then
+      warn "AWS CLI is missing — OIDC checks are skipped and IAM commands will use placeholders."
+    else
+      info "Skipped — AWS CLI is required to inspect EKS OIDC and create the IAM role."
+      return 0
+    fi
+  fi
+  if (( CONFIGURE_AWS == 0 )); then
+    if ! ask_yn "Configure an IAM role so PgDog can read RDS and CloudWatch?"; then
+      info "Skipped AWS access setup."
+      return 0
+    fi
+    CONFIGURE_AWS=1
+  fi
+
+  derive_eks_from_context || true
+  if (( ASSUME_YES == 0 )); then
+    printf "  ${YELLOW}?${RESET} EKS cluster name ${DIM}[%s]${RESET}: " "${AWS_CLUSTER:-required}"
+    read -r _cluster; AWS_CLUSTER="${_cluster:-$AWS_CLUSTER}"
+    printf "  ${YELLOW}?${RESET} AWS region ${DIM}[%s]${RESET}: " "${AWS_REGION:-required}"
+    read -r _region; AWS_REGION="${_region:-$AWS_REGION}"
+    printf "  ${YELLOW}?${RESET} IAM role name ${DIM}[%s]${RESET}: " "$AWS_ROLE_NAME"
+    read -r _role; AWS_ROLE_NAME="${_role:-$AWS_ROLE_NAME}"
+  fi
+
+  if [[ -z "$AWS_CLUSTER" || -z "$AWS_REGION" ]]; then
+    warn "Missing cluster or region — IAM commands will use placeholders."
+    return 0
+  fi
+
+  if discover_eks_oidc; then
+    row ok "EKS cluster" "$AWS_CLUSTER ($AWS_REGION)"
+    row ok "OIDC issuer" "$OIDC_HOST"
+    if (( IAM_OIDC_PROVIDER_EXISTS )); then
+      row ok "IAM OIDC provider" "registered in account $AWS_ACCOUNT_ID"
+    else
+      row warn "IAM OIDC provider" "not registered in account $AWS_ACCOUNT_ID"
+    fi
+  else
+    warn "Could not read EKS OIDC details — check AWS credentials, cluster name, and region."
+  fi
+}
+
 # ─────────────────────────── step 1: local deps ────────────────────────
 # check_local <name> <cmd> <version-args> <required:0|1> <note>
 check_local() {
@@ -289,12 +454,14 @@ scan_controllers() {
     row warn "ingress controllers" "cannot scan — cluster unreachable"
     return 0
   fi
+  loading "ingress-nginx"
   if kubectl get ingressclass nginx >/dev/null 2>&1 \
      || kubectl -n ingress-nginx get deploy ingress-nginx-controller >/dev/null 2>&1; then
     HAVE_NGINX=1; row ok "ingress-nginx" "controller present"
   else
     row warn "ingress-nginx" "not detected"
   fi
+  loading "AWS LB Controller"
   if kubectl get ingressclass alb >/dev/null 2>&1 \
      || kubectl -n kube-system get deploy aws-load-balancer-controller >/dev/null 2>&1; then
     HAVE_ALB=1; row ok "AWS LB Controller" "present"
@@ -304,6 +471,7 @@ scan_controllers() {
   # Gateway API: HTTPRoute mode needs the gateway.networking.k8s.io CRDs and
   # at least one Gateway resource for the HTTPRoute to attach to. A controller
   # being installed shows up as a GatewayClass but is not itself a Gateway.
+  loading "Gateway API"
   if crd_exists httproutes.gateway.networking.k8s.io \
      && crd_exists gateways.gateway.networking.k8s.io; then
     local classes
@@ -326,6 +494,7 @@ scan_controllers() {
 
 check_cluster_deps() {
   heading "Cluster check  ${DIM}(current kube context, read-only)${RESET}"
+  loading "kube API"
   if kubectl cluster-info >/dev/null 2>&1; then
     row ok "kube API reachable" "context: $(kubectl config current-context 2>/dev/null || echo '?')"
   else
@@ -371,6 +540,7 @@ aws eks update-kubeconfig --name <CLUSTER> --region <REGION>"
 }
 
 check_certmanager() {
+  loading "cert-manager"
   if crd_exists clusterissuers.cert-manager.io; then
     row ok "cert-manager" "CRDs present"
   else
@@ -383,6 +553,7 @@ check_clusterissuer() {
     row warn "ClusterIssuer" "skipped (cert-manager absent)"; MISSING_ISSUER=1; return
   fi
   local ready
+  loading "ClusterIssuer"
   ready=$(kubectl get clusterissuer letsencrypt-prod \
             -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
   if [[ "$ready" == "True" ]]; then
@@ -398,8 +569,8 @@ advise_ingress_nginx() {
   snippet "helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
 helm repo update
 helm install ingress-nginx ingress-nginx/ingress-nginx \\
-  --namespace ingress-nginx --create-namespace \\
-  --set controller.service.type=LoadBalancer
+--namespace ingress-nginx --create-namespace \\
+--set controller.service.type=LoadBalancer
 kubectl -n ingress-nginx get svc ingress-nginx-controller -w   # note the external address"
 }
 
@@ -408,8 +579,8 @@ advise_cert_manager() {
   snippet "helm repo add jetstack https://charts.jetstack.io
 helm repo update
 helm install cert-manager jetstack/cert-manager \\
-  --namespace cert-manager --create-namespace \\
-  --set crds.enabled=true"
+--namespace cert-manager --create-namespace \\
+--set crds.enabled=true"
 }
 
 advise_clusterissuer() {
@@ -447,34 +618,163 @@ advise_prereqs() {
   if (( MISSING_ISSUER ));  then advise_clusterissuer; fi
 }
 
+advise_aws_iam_role() {
+  (( CONFIGURE_AWS )) || return 0
+  [[ -z "$AWS_ROLE_ARN" ]] || return 0
+
+  heading "IAM role for RDS access"
+
+  local cluster="${AWS_CLUSTER:-CLUSTER_NAME}"
+  local region="${AWS_REGION:-AWS_REGION}"
+  local role="${AWS_ROLE_NAME:-pgdog-control}"
+  local account="${AWS_ACCOUNT_ID:-\$(aws sts get-caller-identity --query Account --output text)}"
+  local oidc="${OIDC_HOST:-\$(aws eks describe-cluster --name \"\$CLUSTER\" --region \"\$REGION\" --query 'cluster.identity.oidc.issuer' --output text | sed 's|^https://||')}"
+  local sa="${RELEASE}-control"
+  [[ -n "$VALUES_FILE" ]] && warn "If $VALUES_FILE overrides control.rbac.serviceAccountName, change SA below to match it."
+
+  if [[ -n "$OIDC_HOST" ]] && (( IAM_OIDC_PROVIDER_EXISTS == 0 )); then
+    warn "The cluster has an OIDC issuer, but the matching IAM OIDC provider is not registered."
+    info "Create it once per cluster before creating the role:"
+    snippet "eksctl utils associate-iam-oidc-provider \\
+--cluster $cluster \\
+--region $region \\
+--approve"
+  elif [[ -z "$OIDC_HOST" ]]; then
+    warn "OIDC provider status is unknown; verify the cluster details and register the provider if needed:"
+    snippet "aws eks describe-cluster \\
+--name $cluster \\
+--region $region \\
+--query 'cluster.identity.oidc.issuer' \\
+--output text
+
+eksctl utils associate-iam-oidc-provider \\
+--cluster $cluster \\
+--region $region \\
+--approve"
+  else
+    ok "IAM OIDC provider is present — IRSA can be configured for this cluster."
+  fi
+
+  info "Create the IAM trust policy scoped to this chart's ServiceAccount:"
+  snippet "CLUSTER=$cluster
+REGION=$region
+NAMESPACE=$NAMESPACE
+RELEASE=$RELEASE
+ROLE_NAME=$role
+
+ACCOUNT_ID=$account
+OIDC_HOST=$oidc
+SA=$sa
+
+cat > trust-policy.json <<EOF
+{
+  \"Version\": \"2012-10-17\",
+  \"Statement\": [
+    {
+      \"Effect\": \"Allow\",
+      \"Principal\": {
+        \"Federated\": \"arn:aws:iam::\${ACCOUNT_ID}:oidc-provider/\${OIDC_HOST}\"
+      },
+      \"Action\": \"sts:AssumeRoleWithWebIdentity\",
+      \"Condition\": {
+        \"StringEquals\": {
+          \"\${OIDC_HOST}:sub\": \"system:serviceaccount:\${NAMESPACE}:\${SA}\",
+          \"\${OIDC_HOST}:aud\": \"sts.amazonaws.com\"
+        }
+      }
+    }
+  ]
+}
+EOF"
+
+  info "Create the read-only RDS / CloudWatch permissions policy:"
+  snippet "cat > pgdog-control-aws-policy.json <<'EOF'
+{
+  \"Version\": \"2012-10-17\",
+  \"Statement\": [
+    {
+      \"Sid\": \"RdsTopology\",
+      \"Effect\": \"Allow\",
+      \"Action\": [
+        \"rds:DescribeDBClusters\",
+        \"rds:DescribeDBInstances\",
+        \"rds:DescribeDBClusterParameters\",
+        \"rds:DescribeDBParameters\"
+      ],
+      \"Resource\": \"*\"
+    },
+    {
+      \"Sid\": \"CloudWatchMetrics\",
+      \"Effect\": \"Allow\",
+      \"Action\": [
+        \"cloudwatch:GetMetricData\"
+      ],
+      \"Resource\": \"*\"
+    },
+    {
+      \"Sid\": \"Ec2InstanceTypeSpecs\",
+      \"Effect\": \"Allow\",
+      \"Action\": [
+        \"ec2:DescribeInstanceTypes\"
+      ],
+      \"Resource\": \"*\"
+    }
+  ]
+}
+EOF"
+
+  info "Create the role and attach the policy:"
+  snippet "aws iam create-role \\
+--role-name \"\$ROLE_NAME\" \\
+--assume-role-policy-document file://trust-policy.json
+
+aws iam put-role-policy \\
+--role-name \"\$ROLE_NAME\" \\
+--policy-name PgDogControlReadRdsAndCloudWatch \\
+--policy-document file://pgdog-control-aws-policy.json
+
+aws iam get-role \\
+--role-name \"\$ROLE_NAME\" \\
+--query 'Role.Arn' \\
+--output text"
+
+  AWS_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID:-ACCOUNT_ID}:role/${role}"
+}
+
 # ────────────────────────── step 4: install advice ─────────────────────
 advise_install() {
   heading "Install the PgDog control plane"
   local install_cmd="helm upgrade --install $RELEASE $CHART \\
-  --namespace $NAMESPACE --create-namespace"
+--namespace $NAMESPACE --create-namespace"
   if [[ -n "$VALUES_FILE" ]]; then
     install_cmd="$install_cmd \\
-  -f $VALUES_FILE"
+-f $VALUES_FILE"
   else
     install_cmd="$install_cmd \\
-  --set ingress.mode=$MODE"
+--set ingress.mode=$MODE"
     [[ -n "$HOST" ]] && install_cmd="$install_cmd \\
-  --set ingress.host=$HOST"
+--set ingress.host=$HOST"
     if [[ "$MODE" == "gateway" ]]; then
       install_cmd="$install_cmd \\
-  --set ingress.gateway.name=${GATEWAY_NAME:-<GATEWAY_NAME>} \\
-  --set ingress.gateway.namespace=${GATEWAY_NAMESPACE:-<GATEWAY_NAMESPACE>}"
+--set ingress.gateway.name=${GATEWAY_NAME:-<GATEWAY_NAME>} \\
+--set ingress.gateway.namespace=${GATEWAY_NAMESPACE:-<GATEWAY_NAMESPACE>}"
       [[ -n "$GATEWAY_SECTION" ]] && install_cmd="$install_cmd \\
-  --set ingress.gateway.sectionName=$GATEWAY_SECTION"
+--set ingress.gateway.sectionName=$GATEWAY_SECTION"
     fi
     if [[ -n "$GH_CLIENT_ID" ]]; then
       install_cmd="$install_cmd \\
-  --set control.config.auth.redirect_base_url=https://$HOST \\
-  --set control.config.auth.github.client_id=$GH_CLIENT_ID \\
-  --set control.config.auth.github.client_secret=$GH_CLIENT_SECRET"
+--set control.config.auth.redirect_base_url=https://$HOST \\
+--set control.config.auth.github.client_id=$GH_CLIENT_ID \\
+--set control.config.auth.github.client_secret=$GH_CLIENT_SECRET"
       [[ -n "$GH_ALLOWED_ORGS" ]] && install_cmd="$install_cmd \\
-  --set control.config.auth.github.allowed_orgs[0]=$GH_ALLOWED_ORGS"
+--set control.config.auth.github.allowed_orgs[0]=$GH_ALLOWED_ORGS"
     fi
+  fi
+  if [[ -n "$AWS_ROLE_ARN" ]]; then
+    install_cmd="$install_cmd \\
+--set-string control.aws.roleArn=$AWS_ROLE_ARN"
+    [[ -n "$AWS_REGION" ]] && install_cmd="$install_cmd \\
+--set-string control.aws.region=$AWS_REGION"
   fi
   info "Add the chart repo, then install the release:"
   snippet "helm repo add $REPO_NAME $REPO_URL
@@ -604,8 +904,8 @@ advise_dns() {
 
   info "Create the Route53 record:"
   snippet "aws route53 change-resource-record-sets \\
-  --hosted-zone-id $zone \\
-  --change-batch '{
+--hosted-zone-id $zone \\
+--change-batch '{
     \"Comment\": \"PgDog control plane dashboard\",
     \"Changes\": [{
       \"Action\": \"UPSERT\",
@@ -629,16 +929,25 @@ PgDog EE Control Plane install advisor (read-only — changes nothing)
 Usage: $0 [options]
   -r, --release NAME    Helm release name              (default: control)
   -n, --namespace NS    Target namespace               (default: default)
-  -m, --mode MODE       Ingress mode: nginx | aws      (prompted if omitted)
+  -m, --mode MODE       Ingress mode: nginx | aws | gateway
+                                                    (prompted if omitted)
       --host HOST       External hostname (ingress.host)
   -f, --values FILE     values.yaml referenced in the printed helm command
       --email EMAIL     ACME email shown in the ClusterIssuer manifest
+      --aws-cluster NAME
+                       EKS cluster name for OIDC / IRSA checks
+      --aws-region REGION
+                       AWS region for EKS and the control pod
+      --aws-role-name NAME
+                       IAM role name to create          (default: pgdog-control)
+      --aws-role-arn ARN
+                       Existing IAM role ARN to set as control.aws.roleArn
   -y, --yes             Non-interactive: assume defaults, skip all prompts
   -h, --help            Show this help
 
 This tool inspects your machine and cluster (read-only) and PRINTS the
 helm / kubectl / aws commands to run. It never installs, applies, or
-creates anything. Step 5 may list Route53 hosted zones (read-only) to put
+creates anything. The DNS step may list Route53 hosted zones (read-only) to put
 a real zone id into the printed DNS command.
 
 Testing: set FAKE_MISSING="aws jq" to force those tools to report as
@@ -650,11 +959,15 @@ parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -r|--release)   RELEASE=$2;     shift 2 ;;
-      -n|--namespace) NAMESPACE=$2;   shift 2 ;;
+      -n|--namespace) NAMESPACE=$2; NAMESPACE_FROM_FLAG=1; shift 2 ;;
       -m|--mode)      MODE=$2; MODE_FROM_FLAG=1; shift 2 ;;
       --host)         HOST=$2;        shift 2 ;;
       -f|--values)    VALUES_FILE=$2; shift 2 ;;
       --email)        ACME_EMAIL=$2;  shift 2 ;;
+      --aws-cluster)  AWS_CLUSTER=$2; shift 2 ;;
+      --aws-region)   AWS_REGION=$2;  shift 2 ;;
+      --aws-role-name) AWS_ROLE_NAME=$2; CONFIGURE_AWS=1; shift 2 ;;
+      --aws-role-arn) AWS_ROLE_ARN=$2; CONFIGURE_AWS=1; shift 2 ;;
       -y|--yes)       ASSUME_YES=1;   shift   ;;
       -h|--help)      usage; exit 0 ;;
       *) die "Unknown option: $1" ;;
@@ -662,6 +975,9 @@ parse_args() {
   done
   if (( MODE_FROM_FLAG )); then
     case "$MODE" in nginx|aws|gateway) ;; *) die "Invalid --mode: $MODE (use nginx, aws, or gateway)" ;; esac
+  fi
+  if ! valid_namespace "$NAMESPACE"; then
+    die "Invalid --namespace: $NAMESPACE"
   fi
 }
 
@@ -674,12 +990,15 @@ main() {
   banner
   check_local_deps
   check_cluster_deps   # scans controllers, proposes the ingress mode, mode-specific checks
+  prompt_namespace
   prompt_gateway
   prompt_host
   setup_github_oauth
+  setup_aws_access
   printf "\n  ${DIM}release=%s  namespace=%s  mode=%s%s${RESET}\n" \
     "$RELEASE" "$NAMESPACE" "$MODE" "${HOST:+  host=$HOST}"
   advise_prereqs
+  advise_aws_iam_role
   # nginx: DNS must resolve BEFORE the chart install so cert-manager's
   # HTTP-01 challenge can complete. aws: the ALB only exists after install,
   # so DNS comes last.
