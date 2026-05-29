@@ -667,6 +667,9 @@ parse_args() {
 
 main() {
   parse_args "$@"
+  # When piped (e.g. `curl … | bash`), stdin is the script itself, so prompts
+  # would hit EOF. Reattach stdin to the terminal if one is available.
+  if [[ ! -t 0 && -e /dev/tty ]]; then exec </dev/tty; fi
   banner
   check_local_deps
   check_cluster_deps   # scans controllers, proposes the ingress mode, mode-specific checks
