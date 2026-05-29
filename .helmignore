@@ -5,3 +5,4 @@ deploy/
 dev/
 *.tgz
 .DS_Store
+install.sh

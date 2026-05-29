@@ -5,6 +5,16 @@ Production-ready [Helm](https://helm.sh) chart for the PgDog Enterprise
 
 ## Installation
 
+The fastest way to install is the guided advisor script. It inspects your
+machine and cluster (read-only), then prints the exact `helm` / `kubectl` /
+`aws` commands to run:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/pgdogdev/helm-ee/main/install.sh | bash
+```
+
+Or install manually with Helm (see for options below):
+
 ```sh
 helm repo add pgdogdev-ee https://helm-ee.pgdog.dev
 helm install control pgdogdev-ee/pgdog-control
