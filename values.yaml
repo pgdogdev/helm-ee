@@ -53,6 +53,7 @@ control:
   # Pod-level securityContext for the control deployment.
   # Defaults are PSS Restricted compliant.
   podSecurityContext:
+    fsGroup: 1000
     runAsNonRoot: true
     runAsUser: 1000
     runAsGroup: 1000

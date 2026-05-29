@@ -67,6 +67,20 @@ spec:
         env:
         - name: CONTROL_CONFIG
           value: /etc/pgdog-control/control.toml
+        - name: HOME
+          value: /var/lib/pgdog-control
+        - name: XDG_CACHE_HOME
+          value: /var/lib/pgdog-control/.cache
+        - name: XDG_CONFIG_HOME
+          value: /var/lib/pgdog-control/.config
+        - name: XDG_DATA_HOME
+          value: /var/lib/pgdog-control/.local/share
+        - name: HELM_CACHE_HOME
+          value: /var/lib/pgdog-control/helm/cache
+        - name: HELM_CONFIG_HOME
+          value: /var/lib/pgdog-control/helm/config
+        - name: HELM_DATA_HOME
+          value: /var/lib/pgdog-control/helm/data
         # control2's whoami uses these to look up the Service that fronts
         # this pod (src/models/deployment/kube/whoami.rs); without them
         # endpoint() falls back to the host.minikube.internal dev URL.
@@ -91,6 +105,10 @@ spec:
         - name: config
           mountPath: /etc/pgdog-control
           readOnly: true
+        - name: runtime
+          mountPath: /var/lib/pgdog-control
+        - name: tmp
+          mountPath: /tmp
         ports:
         - containerPort: {{ .Values.control.port }}
           name: http
@@ -124,3 +142,7 @@ spec:
           items:
           - key: control.toml
             path: control.toml
+      - name: runtime
+        emptyDir: {}
+      - name: tmp
+        emptyDir: {}
