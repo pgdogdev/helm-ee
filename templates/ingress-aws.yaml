@@ -11,6 +11,9 @@ metadata:
   annotations:
     alb.ingress.kubernetes.io/scheme: {{ .Values.ingress.aws.scheme | quote }}
     alb.ingress.kubernetes.io/target-type: ip
+    {{- if .Values.ingress.aws.subnets }}
+    alb.ingress.kubernetes.io/subnets: {{ .Values.ingress.aws.subnets | quote }}
+    {{- end }}
     {{- if .Values.ingress.aws.certificateArn }}
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
     alb.ingress.kubernetes.io/certificate-arn: {{ .Values.ingress.aws.certificateArn | quote }}

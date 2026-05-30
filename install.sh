@@ -24,7 +24,7 @@ REPO_NAME="pgdogdev-ee"
 REPO_URL="https://helm-ee.pgdog.dev"
 CHART="pgdogdev-ee/pgdog-control"
 
-RELEASE="control"
+RELEASE="pgdog-control"
 NAMESPACE="default"
 NAMESPACE_FROM_FLAG=0
 MODE=""               # nginx | aws  (chosen interactively when unset)
@@ -37,6 +37,8 @@ AWS_REGION=""
 AWS_CLUSTER=""
 AWS_ROLE_NAME="pgdog-control"
 AWS_ROLE_ARN=""
+AWS_CERT_ARN=""
+AWS_ALB_SUBNETS=""
 CONFIGURE_AWS=0
 
 # state filled in by the checks
@@ -131,11 +133,19 @@ valid_namespace() {
   [[ ${#1} -le 63 && "$1" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]]
 }
 
+valid_acm_domain() {
+  [[ ${#1} -le 253 && "$1" =~ ^(\*\.)?([A-Za-z0-9]([-A-Za-z0-9]{0,61}[A-Za-z0-9])?\.)+[A-Za-z0-9]([-A-Za-z0-9]{0,61}[A-Za-z0-9])?$ ]]
+}
+
 # Best-effort open a URL in the host browser (no-op if no opener available).
 open_url() {
   if   have open;     then open "$1"     >/dev/null 2>&1 || true
   elif have xdg-open; then xdg-open "$1" >/dev/null 2>&1 || true
   fi
+}
+
+is_kube_auth_error() {
+  [[ "$1" =~ [Ff]orbidden|[Uu]nauthorized|[Pp]ermission[[:space:]]denied|must[[:space:]]be[[:space:]]logged[[:space:]]in|the[[:space:]]server[[:space:]]has[[:space:]]asked[[:space:]]for[[:space:]]the[[:space:]]client[[:space:]]to[[:space:]]provide[[:space:]]credentials|You[[:space:]]must[[:space:]]be[[:space:]]logged[[:space:]]in ]]
 }
 
 # ─────────────────────────── ingress mode menu ─────────────────────────
@@ -152,7 +162,11 @@ choose_mode() {
   elif (( HAVE_NGINX ));   then default="nginx";   reason="ingress-nginx detected"
   elif (( HAVE_ALB ));     then default="aws";     reason="AWS LB Controller detected"
   elif (( HAVE_GATEWAY )); then default="gateway"; reason="Gateway API detected"
-  else                          default="nginx";   reason="no controller detected"
+  else
+    info "No supported ingress path was detected."
+    choose_controller_to_install
+    info "If your controller uses custom names and you want to override detection, re-run with --mode nginx, --mode aws, or --mode gateway."
+    die "No ingress controller detected."
   fi
 
   info "Proposed ingress mode: ${BOLD}${default}${RESET} ${DIM}(${reason})${RESET}"
@@ -314,6 +328,142 @@ Authorization callback URL: ${callback}"
   fi
 }
 
+# ───────────────────────────── AWS ACM TLS ─────────────────────────────
+setup_aws_acm_tls() {
+  [[ "$MODE" == "aws" ]] || return 0
+  if [[ -n "$AWS_CERT_ARN" ]]; then
+    ok "ACM certificate: ${BOLD}${AWS_CERT_ARN}${RESET}"
+    return 0
+  fi
+  if (( ASSUME_YES )); then
+    info "Skipped ACM TLS setup — pass --acm-cert-arn to configure HTTPS non-interactively."
+    return 0
+  fi
+  if [[ -z "$HOST" ]]; then
+    warn "Skipped ACM TLS setup — ingress.host is required to find or request a certificate."
+    return 0
+  fi
+  if ! have aws; then
+    warn "AWS CLI not found — set ingress.aws.certificateArn manually for HTTPS."
+    return 0
+  fi
+
+  heading "AWS ALB TLS  ${DIM}(ACM certificate)${RESET}"
+  if ! ask_yn "Configure HTTPS for the ALB with an ACM certificate?"; then
+    info "Skipped ACM TLS setup — ALB will be HTTP-only unless your values file sets ingress.aws.certificateArn."
+    return 0
+  fi
+  if ! valid_acm_domain "$HOST"; then
+    warn "ACM requires a fully qualified domain name, e.g. control.example.com."
+    local acm_host=""
+    while true; do
+      printf "  ${YELLOW}?${RESET} Public DNS name for the ALB/ACM certificate: "
+      read -r acm_host
+      if valid_acm_domain "$acm_host"; then
+        HOST="$acm_host"
+        ok "Hostname: ${BOLD}${HOST}${RESET}"
+        break
+      fi
+      warn "Enter a valid DNS name with a domain suffix, e.g. pgdog-control-test.example.com."
+    done
+  fi
+
+  derive_eks_from_context || true
+  local region="${AWS_REGION:-AWS_REGION}"
+  local detected=""
+  if [[ "$region" != "AWS_REGION" ]]; then
+    loading "ACM certificate"
+    detected=$(aws acm list-certificates \
+      --region "$region" \
+      --certificate-statuses ISSUED \
+      --query "CertificateSummaryList[?DomainName=='${HOST}'].CertificateArn | [0]" \
+      --output text 2>/dev/null || true)
+    clear_loading
+    [[ "$detected" == "None" ]] && detected=""
+  fi
+
+  [[ -n "$detected" ]] && info "Detected issued ACM certificate for ${BOLD}${HOST}${RESET}."
+  printf "  ${YELLOW}?${RESET} ACM certificate ARN ${DIM}[%s]${RESET}: " "${detected:-blank = print request commands}"
+  read -r AWS_CERT_ARN
+  AWS_CERT_ARN="${AWS_CERT_ARN:-$detected}"
+
+  if [[ -n "$AWS_CERT_ARN" ]]; then
+    ok "ACM certificate: ${BOLD}${AWS_CERT_ARN}${RESET}"
+    return 0
+  fi
+
+  if [[ -z "$ZONE_ID" ]] && (( ASSUME_YES == 0 )); then
+    choose_hosted_zone || true
+  fi
+  local zone="${ZONE_ID:-HOSTED_ZONE_ID}"
+
+  info "Request a DNS-validated ACM certificate, create the validation CNAME in Route53, wait for issuance, then re-run with --acm-cert-arn:"
+  snippet "CERT_ARN=\$(aws acm request-certificate \\
+--region $region \\
+--domain-name $HOST \\
+--validation-method DNS \\
+--query CertificateArn \\
+--output text)
+
+RR_NAME=\$(aws acm describe-certificate \\
+--region $region \\
+--certificate-arn \"\$CERT_ARN\" \\
+--query 'Certificate.DomainValidationOptions[0].ResourceRecord.Name' \\
+--output text)
+
+RR_TYPE=\$(aws acm describe-certificate \\
+--region $region \\
+--certificate-arn \"\$CERT_ARN\" \\
+--query 'Certificate.DomainValidationOptions[0].ResourceRecord.Type' \\
+--output text)
+
+RR_VALUE=\$(aws acm describe-certificate \\
+--region $region \\
+--certificate-arn \"\$CERT_ARN\" \\
+--query 'Certificate.DomainValidationOptions[0].ResourceRecord.Value' \\
+--output text)
+
+aws route53 change-resource-record-sets \\
+--hosted-zone-id $zone \\
+--change-batch '{
+  \"Comment\": \"ACM DNS validation for $HOST\",
+  \"Changes\": [{
+    \"Action\": \"UPSERT\",
+    \"ResourceRecordSet\": {
+      \"Name\": \"'\"\$RR_NAME\"'\",
+      \"Type\": \"'\"\$RR_TYPE\"'\",
+      \"TTL\": 300,
+      \"ResourceRecords\": [{ \"Value\": \"'\"\$RR_VALUE\"'\" }]
+    }
+  }]
+}'
+
+aws acm wait certificate-validated \\
+--region $region \\
+--certificate-arn \"\$CERT_ARN\"
+
+echo \"\$CERT_ARN\""
+  die "ACM certificate ARN is required for AWS ALB HTTPS — request/validate a cert, then re-run this advisor."
+}
+
+detect_aws_alb_subnets() {
+  [[ "$MODE" == "aws" ]] || return 0
+  [[ -z "$AWS_ALB_SUBNETS" ]] || return 0
+  have aws || return 0
+  derive_eks_from_context || true
+  [[ -n "$AWS_CLUSTER" && -n "$AWS_REGION" ]] || return 0
+
+  loading "ALB subnets"
+  AWS_ALB_SUBNETS=$(aws eks describe-cluster \
+    --name "$AWS_CLUSTER" \
+    --region "$AWS_REGION" \
+    --query 'join(`,`, cluster.resourcesVpcConfig.subnetIds)' \
+    --output text 2>/dev/null || true)
+  clear_loading
+  [[ "$AWS_ALB_SUBNETS" == "None" ]] && AWS_ALB_SUBNETS=""
+  [[ -n "$AWS_ALB_SUBNETS" ]] && ok "ALB subnets: ${BOLD}${AWS_ALB_SUBNETS}${RESET}"
+}
+
 # ──────────────────────────── AWS / IRSA setup ─────────────────────────
 # The chart already supports EKS IRSA through control.aws.roleArn. This
 # section checks whether the current EKS cluster has an IAM OIDC provider
@@ -338,19 +488,51 @@ discover_eks_oidc() {
   [[ -n "$AWS_CLUSTER" && -n "$AWS_REGION" ]] || return 1
   if ! have aws; then return 1; fi
 
+  loading "EKS OIDC issuer"
   AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || true)
   OIDC_HOST=$(aws eks describe-cluster --name "$AWS_CLUSTER" --region "$AWS_REGION" \
     --query 'cluster.identity.oidc.issuer' --output text 2>/dev/null | sed 's|^https://||' || true)
 
   if [[ -z "$AWS_ACCOUNT_ID" || -z "$OIDC_HOST" || "$OIDC_HOST" == "None" ]]; then
+    clear_loading
     return 1
   fi
 
+  loading "IAM OIDC provider"
   local provider_arn="arn:aws:iam::${AWS_ACCOUNT_ID}:oidc-provider/${OIDC_HOST}"
   if aws iam get-open-id-connect-provider --open-id-connect-provider-arn "$provider_arn" >/dev/null 2>&1; then
     IAM_OIDC_PROVIDER_EXISTS=1
   fi
+  clear_loading
   return 0
+}
+
+abort_for_missing_oidc_provider() {
+  local cluster="${AWS_CLUSTER:-CLUSTER_NAME}"
+  local region="${AWS_REGION:-AWS_REGION}"
+  if [[ -n "$OIDC_HOST" ]]; then
+    warn "The cluster has an OIDC issuer, but the matching IAM OIDC provider is not registered."
+    require_eksctl
+    info "Create the IAM OIDC provider, then re-run this advisor:"
+    snippet "eksctl utils associate-iam-oidc-provider \\
+--cluster $cluster \\
+--region $region \\
+--approve"
+  else
+    warn "OIDC provider status is unknown; verify the cluster details and register the provider if needed."
+    require_eksctl
+    snippet "aws eks describe-cluster \\
+--name $cluster \\
+--region $region \\
+--query 'cluster.identity.oidc.issuer' \\
+--output text
+
+eksctl utils associate-iam-oidc-provider \\
+--cluster $cluster \\
+--region $region \\
+--approve"
+  fi
+  die "EKS IAM OIDC provider is required before creating the PgDog IAM role."
 }
 
 setup_aws_access() {
@@ -364,8 +546,11 @@ setup_aws_access() {
       if (( IAM_OIDC_PROVIDER_EXISTS )); then
         row ok "IAM OIDC provider" "registered in account $AWS_ACCOUNT_ID"
       else
-        row warn "IAM OIDC provider" "not registered in account $AWS_ACCOUNT_ID"
+        row bad "IAM OIDC provider" "not registered in account $AWS_ACCOUNT_ID"
+        abort_for_missing_oidc_provider
       fi
+    elif [[ -n "$AWS_CLUSTER" && -n "$AWS_REGION" ]]; then
+      abort_for_missing_oidc_provider
     fi
     return 0
   fi
@@ -411,10 +596,11 @@ setup_aws_access() {
     if (( IAM_OIDC_PROVIDER_EXISTS )); then
       row ok "IAM OIDC provider" "registered in account $AWS_ACCOUNT_ID"
     else
-      row warn "IAM OIDC provider" "not registered in account $AWS_ACCOUNT_ID"
+      row bad "IAM OIDC provider" "not registered in account $AWS_ACCOUNT_ID"
+      abort_for_missing_oidc_provider
     fi
   else
-    warn "Could not read EKS OIDC details — check AWS credentials, cluster name, and region."
+    abort_for_missing_oidc_provider
   fi
 }
 
@@ -495,9 +681,42 @@ scan_controllers() {
 check_cluster_deps() {
   heading "Cluster check  ${DIM}(current kube context, read-only)${RESET}"
   loading "kube API"
-  if kubectl cluster-info >/dev/null 2>&1; then
+  local cluster_err=""
+  if cluster_err=$(kubectl cluster-info 2>&1 >/dev/null); then
     row ok "kube API reachable" "context: $(kubectl config current-context 2>/dev/null || echo '?')"
   else
+    if is_kube_auth_error "$cluster_err"; then
+      row bad "kube API auth" "permission denied for context: $(kubectl config current-context 2>/dev/null || echo '?')"
+      info "kubectl reached the API server, but this identity is not authorized."
+      if have aws; then
+        local principal
+        principal=$(aws sts get-caller-identity --query Arn --output text 2>/dev/null || true)
+        derive_eks_from_context || true
+        local eks_cluster="${AWS_CLUSTER:-CLUSTER_NAME}"
+        local eks_region="${AWS_REGION:-REGION}"
+        [[ -n "$principal" ]] && info "Current AWS principal: ${BOLD}${principal}${RESET}"
+        info "For EKS, grant this IAM principal cluster access, then re-run:"
+        snippet "aws eks list-access-entries \\
+--cluster-name $eks_cluster \\
+--region $eks_region
+
+aws eks create-access-entry \\
+--cluster-name $eks_cluster \\
+--region $eks_region \\
+--principal-arn ${principal:-<IAM_PRINCIPAL_ARN>}
+
+aws eks associate-access-policy \\
+--cluster-name $eks_cluster \\
+--region $eks_region \\
+--principal-arn ${principal:-<IAM_PRINCIPAL_ARN>} \\
+--policy-arn arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy \\
+--access-scope type=cluster"
+      else
+        info "AWS CLI not found — install it or ask a cluster admin to grant this IAM principal EKS access."
+      fi
+      die "kubectl can reach the cluster, but your identity is not authorized."
+    fi
+
     row bad "kube API reachable" "no reachable cluster"
     if ! have aws; then
       die "kubectl cannot reach a cluster and the AWS CLI is missing — install the AWS CLI (required to configure EKS access), then re-run."
@@ -521,6 +740,10 @@ aws eks update-kubeconfig --name <CLUSTER> --region <REGION>"
         check_certmanager; check_clusterissuer
       else
         MISSING_CERTMGR=1; MISSING_ISSUER=1
+      fi
+      if (( MISSING_NGINX || MISSING_CERTMGR || MISSING_ISSUER )); then
+        advise_prereqs
+        die "nginx prerequisites are missing — run the commands above, then re-run this advisor."
       fi
       ;;
     aws)
@@ -566,12 +789,169 @@ check_clusterissuer() {
 # ──────────────────── step 3: prerequisite advice ──────────────────────
 advise_ingress_nginx() {
   info "Install ingress-nginx:"
-  snippet "helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+  derive_eks_from_context || true
+  local cluster="${AWS_CLUSTER:-CLUSTER_NAME}"
+  local region="${AWS_REGION:-AWS_REGION}"
+  snippet "CLUSTER=$cluster
+REGION=$region
+SUBNETS=\$(aws eks describe-cluster \\
+--name \"\$CLUSTER\" \\
+--region \"\$REGION\" \\
+--query 'join(\`,\`, cluster.resourcesVpcConfig.subnetIds)' \\
+--output text)
+
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
 helm repo update
 helm install ingress-nginx ingress-nginx/ingress-nginx \\
 --namespace ingress-nginx --create-namespace \\
---set controller.service.type=LoadBalancer
+--set controller.service.type=LoadBalancer \\
+--set-json 'controller.service.annotations={\"service.beta.kubernetes.io/aws-load-balancer-scheme\":\"internet-facing\",\"service.beta.kubernetes.io/aws-load-balancer-subnets\":\"'\"\$SUBNETS\"'\"}'
 kubectl -n ingress-nginx get svc ingress-nginx-controller -w   # note the external address"
+}
+
+advise_eksctl_install() {
+  warn "eksctl is required for the OIDC / IAM ServiceAccount commands below."
+  local os arch
+  os=$(uname -s)
+  arch=$(uname -m)
+  case "$os" in
+    Darwin)
+      info "Install eksctl on macOS:"
+      snippet "brew tap weaveworks/tap
+brew install weaveworks/tap/eksctl
+eksctl version"
+      ;;
+    Linux)
+      case "$arch" in
+        x86_64) arch=amd64 ;;
+        aarch64|arm64) arch=arm64 ;;
+        *)
+          warn "Unsupported Linux architecture: $arch"
+          info "See https://eksctl.io/installation/ for manual install options."
+          return 0
+          ;;
+      esac
+      info "Install eksctl on Linux:"
+      snippet "curl -fsSLo eksctl.tar.gz \"https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_Linux_${arch}.tar.gz\"
+tar -xzf eksctl.tar.gz
+sudo install -m 0755 eksctl /usr/local/bin/eksctl
+eksctl version"
+      ;;
+    *)
+      warn "Unsupported OS: $os"
+      info "See https://eksctl.io/installation/ for manual install options."
+      ;;
+  esac
+}
+
+require_eksctl() {
+  have eksctl && return 0
+  advise_eksctl_install
+  die "eksctl is required — install it, then re-run this advisor."
+}
+
+advise_aws_load_balancer_controller() {
+  info "Install the AWS Load Balancer Controller:"
+  require_eksctl
+  derive_eks_from_context || true
+  local cluster="${AWS_CLUSTER:-CLUSTER_NAME}"
+  local region="${AWS_REGION:-AWS_REGION}"
+  local account_id="${AWS_ACCOUNT_ID:-}"
+  local vpc_id=""
+  if have aws; then
+    [[ -n "$account_id" ]] || account_id=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || true)
+    if [[ "$cluster" != "CLUSTER_NAME" && "$region" != "AWS_REGION" ]]; then
+      vpc_id=$(aws eks describe-cluster --name "$cluster" --region "$region" \
+        --query 'cluster.resourcesVpcConfig.vpcId' --output text 2>/dev/null || true)
+      [[ "$vpc_id" == "None" ]] && vpc_id=""
+    fi
+  fi
+  account_id="${account_id:-ACCOUNT_ID}"
+  vpc_id="${vpc_id:-VPC_ID}"
+  local oidc_cmd=""
+  if discover_eks_oidc; then
+    if (( IAM_OIDC_PROVIDER_EXISTS )); then
+      ok "IAM OIDC provider is already registered."
+    else
+      oidc_cmd="eksctl utils associate-iam-oidc-provider \\
+--cluster \"$cluster\" \\
+--region \"$region\" \\
+--approve
+
+"
+    fi
+  else
+    warn "Could not verify IAM OIDC provider status — check it before creating the IAM ServiceAccount."
+  fi
+  snippet "${oidc_cmd}curl -fsSLo aws-load-balancer-controller-policy.json \\
+https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/main/docs/install/iam_policy.json
+
+aws iam get-policy \\
+--policy-arn \"arn:aws:iam::${account_id}:policy/AWSLoadBalancerControllerIAMPolicy\" \\
+>/dev/null 2>&1 || \\
+aws iam create-policy \\
+--policy-name AWSLoadBalancerControllerIAMPolicy \\
+--policy-document file://aws-load-balancer-controller-policy.json
+
+eksctl create iamserviceaccount \\
+--cluster \"$cluster\" \\
+--region \"$region\" \\
+--namespace kube-system \\
+--name aws-load-balancer-controller \\
+--attach-policy-arn \"arn:aws:iam::${account_id}:policy/AWSLoadBalancerControllerIAMPolicy\" \\
+--override-existing-serviceaccounts \\
+--approve
+
+helm repo add eks https://aws.github.io/eks-charts
+helm repo update
+helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \\
+--namespace kube-system \\
+--set clusterName=\"$cluster\" \\
+--set region=\"$region\" \\
+--set vpcId=\"$vpc_id\" \\
+--set serviceAccount.create=false \\
+--set serviceAccount.name=aws-load-balancer-controller
+
+kubectl -n kube-system rollout status deployment/aws-load-balancer-controller"
+}
+
+choose_controller_to_install() {
+  heading "Ingress controller setup"
+  if (( ASSUME_YES )); then
+    info "Non-interactive mode: showing both controller install options."
+    advise_ingress_nginx
+    advise_aws_load_balancer_controller
+    return 0
+  fi
+
+  info "Choose the controller you want to install, then re-run this advisor after it is ready."
+  printf "    ${BOLD}1)${RESET} nginx     ${DIM}ingress-nginx LoadBalancer; use nginx mode${RESET}\n"
+  printf "    ${BOLD}2)${RESET} aws       ${DIM}AWS Load Balancer Controller; use aws mode${RESET}\n"
+  printf "    ${BOLD}3)${RESET} both      ${DIM}print both sets of instructions${RESET}\n"
+
+  local choice
+  while true; do
+    printf "  ${YELLOW}?${RESET} Choose controller install instructions ${DIM}[1]${RESET}: "
+    read -r choice
+    case "${choice:-1}" in
+      1|nginx)
+        advise_ingress_nginx
+        return 0
+        ;;
+      2|aws)
+        advise_aws_load_balancer_controller
+        return 0
+        ;;
+      3|both)
+        advise_ingress_nginx
+        advise_aws_load_balancer_controller
+        return 0
+        ;;
+      *)
+        warn "Enter 1 (nginx), 2 (aws), or 3 (both)."
+        ;;
+    esac
+  done
 }
 
 advise_cert_manager() {
@@ -627,59 +1007,36 @@ advise_aws_iam_role() {
   local cluster="${AWS_CLUSTER:-CLUSTER_NAME}"
   local region="${AWS_REGION:-AWS_REGION}"
   local role="${AWS_ROLE_NAME:-pgdog-control}"
-  local account="${AWS_ACCOUNT_ID:-\$(aws sts get-caller-identity --query Account --output text)}"
-  local oidc="${OIDC_HOST:-\$(aws eks describe-cluster --name \"\$CLUSTER\" --region \"\$REGION\" --query 'cluster.identity.oidc.issuer' --output text | sed 's|^https://||')}"
+  if [[ -z "$AWS_ACCOUNT_ID" ]] && have aws; then
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || true)
+  fi
+  if [[ -z "$OIDC_HOST" ]] && have aws && [[ "$cluster" != "CLUSTER_NAME" && "$region" != "AWS_REGION" ]]; then
+    OIDC_HOST=$(aws eks describe-cluster --name "$cluster" --region "$region" \
+      --query 'cluster.identity.oidc.issuer' --output text 2>/dev/null | sed 's|^https://||' || true)
+    [[ "$OIDC_HOST" == "None" ]] && OIDC_HOST=""
+  fi
+  local account="${AWS_ACCOUNT_ID:-ACCOUNT_ID}"
+  local oidc="${OIDC_HOST:-OIDC_HOST}"
   local sa="${RELEASE}-control"
   [[ -n "$VALUES_FILE" ]] && warn "If $VALUES_FILE overrides control.rbac.serviceAccountName, change SA below to match it."
 
-  if [[ -n "$OIDC_HOST" ]] && (( IAM_OIDC_PROVIDER_EXISTS == 0 )); then
-    warn "The cluster has an OIDC issuer, but the matching IAM OIDC provider is not registered."
-    info "Create it once per cluster before creating the role:"
-    snippet "eksctl utils associate-iam-oidc-provider \\
---cluster $cluster \\
---region $region \\
---approve"
-  elif [[ -z "$OIDC_HOST" ]]; then
-    warn "OIDC provider status is unknown; verify the cluster details and register the provider if needed:"
-    snippet "aws eks describe-cluster \\
---name $cluster \\
---region $region \\
---query 'cluster.identity.oidc.issuer' \\
---output text
-
-eksctl utils associate-iam-oidc-provider \\
---cluster $cluster \\
---region $region \\
---approve"
-  else
-    ok "IAM OIDC provider is present — IRSA can be configured for this cluster."
-  fi
+  ok "IAM OIDC provider is present — IRSA can be configured for this cluster."
 
   info "Create the IAM trust policy scoped to this chart's ServiceAccount:"
-  snippet "CLUSTER=$cluster
-REGION=$region
-NAMESPACE=$NAMESPACE
-RELEASE=$RELEASE
-ROLE_NAME=$role
-
-ACCOUNT_ID=$account
-OIDC_HOST=$oidc
-SA=$sa
-
-cat > trust-policy.json <<EOF
+  snippet "cat > trust-policy.json <<'EOF'
 {
   \"Version\": \"2012-10-17\",
   \"Statement\": [
     {
       \"Effect\": \"Allow\",
       \"Principal\": {
-        \"Federated\": \"arn:aws:iam::\${ACCOUNT_ID}:oidc-provider/\${OIDC_HOST}\"
+        \"Federated\": \"arn:aws:iam::${account}:oidc-provider/${oidc}\"
       },
       \"Action\": \"sts:AssumeRoleWithWebIdentity\",
       \"Condition\": {
         \"StringEquals\": {
-          \"\${OIDC_HOST}:sub\": \"system:serviceaccount:\${NAMESPACE}:\${SA}\",
-          \"\${OIDC_HOST}:aud\": \"sts.amazonaws.com\"
+          \"${oidc}:sub\": \"system:serviceaccount:${NAMESPACE}:${sa}\",
+          \"${oidc}:aud\": \"sts.amazonaws.com\"
         }
       }
     }
@@ -725,16 +1082,16 @@ EOF"
 
   info "Create the role and attach the policy:"
   snippet "aws iam create-role \\
---role-name \"\$ROLE_NAME\" \\
+--role-name \"$role\" \\
 --assume-role-policy-document file://trust-policy.json
 
 aws iam put-role-policy \\
---role-name \"\$ROLE_NAME\" \\
+--role-name \"$role\" \\
 --policy-name PgDogControlReadRdsAndCloudWatch \\
 --policy-document file://pgdog-control-aws-policy.json
 
 aws iam get-role \\
---role-name \"\$ROLE_NAME\" \\
+--role-name \"$role\" \\
 --query 'Role.Arn' \\
 --output text"
 
@@ -744,6 +1101,7 @@ aws iam get-role \\
 # ────────────────────────── step 4: install advice ─────────────────────
 advise_install() {
   heading "Install the PgDog control plane"
+  detect_aws_alb_subnets
   local install_cmd="helm upgrade --install $RELEASE $CHART \\
 --namespace $NAMESPACE --create-namespace"
   if [[ -n "$VALUES_FILE" ]]; then
@@ -776,6 +1134,16 @@ advise_install() {
     [[ -n "$AWS_REGION" ]] && install_cmd="$install_cmd \\
 --set-string control.aws.region=$AWS_REGION"
   fi
+  if [[ -n "$AWS_CERT_ARN" ]]; then
+    install_cmd="$install_cmd \\
+--set-string ingress.aws.certificateArn=$AWS_CERT_ARN"
+  fi
+  if [[ -n "$AWS_ALB_SUBNETS" ]]; then
+    install_cmd="$install_cmd \\
+--set-json 'ingress.aws.subnets=\"$AWS_ALB_SUBNETS\"'"
+  fi
+  install_cmd="$install_cmd \\
+--set-string 'control.rbac.writeNamespaces[0]=$NAMESPACE'"
   info "Add the chart repo, then install the release:"
   snippet "helm repo add $REPO_NAME $REPO_URL
 helm repo update
@@ -927,7 +1295,7 @@ usage() {
 PgDog EE Control Plane install advisor (read-only — changes nothing)
 
 Usage: $0 [options]
-  -r, --release NAME    Helm release name              (default: control)
+  -r, --release NAME    Helm release name              (default: pgdog-control)
   -n, --namespace NS    Target namespace               (default: default)
   -m, --mode MODE       Ingress mode: nginx | aws | gateway
                                                     (prompted if omitted)
@@ -942,6 +1310,8 @@ Usage: $0 [options]
                        IAM role name to create          (default: pgdog-control)
       --aws-role-arn ARN
                        Existing IAM role ARN to set as control.aws.roleArn
+      --acm-cert-arn ARN
+                       ACM certificate ARN for AWS ALB HTTPS
   -y, --yes             Non-interactive: assume defaults, skip all prompts
   -h, --help            Show this help
 
@@ -968,6 +1338,7 @@ parse_args() {
       --aws-region)   AWS_REGION=$2;  shift 2 ;;
       --aws-role-name) AWS_ROLE_NAME=$2; CONFIGURE_AWS=1; shift 2 ;;
       --aws-role-arn) AWS_ROLE_ARN=$2; CONFIGURE_AWS=1; shift 2 ;;
+      --acm-cert-arn) AWS_CERT_ARN=$2; shift 2 ;;
       -y|--yes)       ASSUME_YES=1;   shift   ;;
       -h|--help)      usage; exit 0 ;;
       *) die "Unknown option: $1" ;;
@@ -994,6 +1365,7 @@ main() {
   prompt_gateway
   prompt_host
   setup_github_oauth
+  setup_aws_acm_tls
   setup_aws_access
   printf "\n  ${DIM}release=%s  namespace=%s  mode=%s%s${RESET}\n" \
     "$RELEASE" "$NAMESPACE" "$MODE" "${HOST:+  host=$HOST}"

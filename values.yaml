@@ -189,6 +189,9 @@ ingress:
     # scheme controls whether the ALB is internet-facing or internal.
     # Valid values: "internet-facing" or "internal".
     scheme: "internet-facing"
+    # Optional comma-separated subnet IDs for the ALB. When empty, the
+    # AWS Load Balancer Controller auto-discovers subnets from tags.
+    subnets: ""
     # certificateArn is the ACM cert ARN attached to the HTTPS listener.
     # Optional: when empty the ALB serves HTTP only (no 443 listener).
     certificateArn: ""

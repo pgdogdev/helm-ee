@@ -182,6 +182,7 @@ ingress:
   host: control.example.com
   aws:
     scheme: internet-facing
+    subnets: subnet-aaa,subnet-bbb
     certificateArn: arn:aws:acm:us-east-1:111111111111:certificate/abc-123
     sslRedirect: true
 ```
@@ -189,6 +190,7 @@ ingress:
 | Option | Description |
 |-|-|
 | `ingress.aws.scheme` | `alb.ingress.kubernetes.io/scheme`. Either `internet-facing` or `internal` (string, default `internet-facing`). |
+| `ingress.aws.subnets` | Optional comma-separated subnet IDs rendered as `alb.ingress.kubernetes.io/subnets`. Empty = controller auto-discovers subnets from AWS tags (string, default `""`). |
 | `ingress.aws.certificateArn` | ACM cert ARN attached to the HTTPS listener. Empty = HTTP-only ALB, no 443 listener (string, default `""`). |
 | `ingress.aws.sslRedirect` | When `true` and `certificateArn` is set, the ALB redirects HTTP:80 → HTTPS:443. Ignored when `certificateArn` is empty (bool, default `true`). |
 
