@@ -1,21 +1,23 @@
 #!/usr/bin/env bash
 #
-# install.sh — read-only install ADVISOR for the PgDog EE Control Plane.
+# install.sh — interactive installer for the PgDog EE Control Plane.
 #
-# This script changes NOTHING. It only inspects and advises:
+# This script inspects the target environment, shows the commands it is about
+# to run, then asks you to type "confirm" before each mutating action unless
+# --yes is passed:
 #   1. verify local CLI tools
 #   2. scan the cluster for ingress controllers, propose an ingress mode,
-#      then check the remaining per-mode deps (read-only)
-#   3. print the commands to install any missing prerequisites
+#      then check the remaining per-mode deps
+#   3. install any missing prerequisites you confirm
 #      (ingress-nginx, cert-manager, a Let's Encrypt ClusterIssuer)
-#   4. optionally check EKS OIDC / IAM provider readiness and print the IAM
-#      role commands for RDS / CloudWatch access
-#   5. print the `helm` commands to install the chart
-#   6. list Route53 hosted zones (read-only) and print the `aws` command
-#      to create the DNS record pointing the hostname at the load balancer
+#   4. optionally check EKS OIDC / IAM provider readiness and create the IAM
+#      role for RDS / CloudWatch access
+#   5. run the `helm` commands to install the chart
+#   6. list Route53 hosted zones and create the DNS record pointing the
+#      hostname at the load balancer when the target is known
 #
-# Every mutating action is emitted as a copy-pasteable command for you to
-# review and run yourself.
+# Every mutating action is shown before execution. Interactive runs require an
+# exact "confirm" response; --yes runs the generated commands automatically.
 #
 set -euo pipefail
 
@@ -30,12 +32,14 @@ NAMESPACE_FROM_FLAG=0
 MODE=""               # nginx | aws  (chosen interactively when unset)
 MODE_FROM_FLAG=0
 HOST=""
+DNS_PROVIDER=""       # route53 | manual
 VALUES_FILE=""
 ACME_EMAIL=""
 ASSUME_YES=0
 AWS_REGION=""
 AWS_CLUSTER=""
-AWS_ROLE_NAME="pgdog-control"
+AWS_ROLE_NAME=""
+AWS_ROLE_NAME_FROM_FLAG=0
 AWS_ROLE_ARN=""
 AWS_CERT_ARN=""
 AWS_ALB_SUBNETS=""
@@ -63,14 +67,33 @@ else
 fi
 CHECK="✔"; CROSS="✘"; WARN_SYM="⚠"; INFO_SYM="ℹ"
 
-banner() {
-  local bar; bar=$(printf '─%.0s' {1..49})
-  # Inner width is 49; lines are: 3-space margin + text + trailing pad.
-  # Title text is 40 cols (→ 6 trailing), subtitle is 44 cols (→ 2 trailing).
+boxed_line() {
+  local text=$1 subtext=${2:-} width=49
+  if (( ${#text} > width - 6 )); then
+    width=$((${#text} + 6))
+  fi
+  if [[ -n "$subtext" ]] && (( ${#subtext} > width - 6 )); then
+    width=$((${#subtext} + 6))
+  fi
+  local bar
+  bar=$(printf '─%.0s' $(seq 1 "$width"))
   printf "\n${CYAN}${BOLD}╭%s╮${RESET}\n" "$bar"
-  printf   "${CYAN}${BOLD}│${RESET}   ${BOLD}PgDog EE · Control Plane Install Advisor${RESET}      ${CYAN}${BOLD}│${RESET}\n"
-  printf   "${CYAN}${BOLD}│${RESET}   ${DIM}read-only — prints commands, changes nothing${RESET}  ${CYAN}${BOLD}│${RESET}\n"
+  boxed_line_row "$text" "$width" "$BOLD"
+  if [[ -n "$subtext" ]]; then
+    boxed_line_row "$subtext" "$width" "$DIM"
+  fi
   printf   "${CYAN}${BOLD}╰%s╯${RESET}\n" "$bar"
+}
+
+boxed_line_row() {
+  local text=$1 width=$2 style=$3 left right
+  left=$(((width - ${#text}) / 2))
+  right=$((width - ${#text} - left))
+  printf "${CYAN}${BOLD}│${RESET}%*s%s%s${RESET}%*s${CYAN}${BOLD}│${RESET}\n" "$left" "" "$style" "$text" "$right" ""
+}
+
+banner() {
+  boxed_line "PgDog EE · Control Plane Installer"
 }
 
 step() { printf "\n${BLUE}${BOLD}%s${RESET}  ${BOLD}%s${RESET}\n" "$1" "$2"; }
@@ -104,6 +127,29 @@ snippet() {
   printf "\n"
 }
 
+confirm_command() {
+  local label=$1 cmd=$2 r
+  snippet "$cmd"
+  if (( ASSUME_YES )); then
+    ok "Auto-confirmed: $label"
+  else
+    while true; do
+      printf "  ${YELLOW}?${RESET} Type ${BOLD}confirm${RESET} to run %s: " "$label"
+      read -r r
+      [[ "$r" == "confirm" ]] && break
+      warn "Type confirm to continue."
+    done
+  fi
+}
+
+confirm_and_run() {
+  local label=$1 cmd=$2
+  confirm_command "$label" "$cmd"
+  info "Running: $label"
+  bash -euo pipefail -c "$cmd"
+  ok "Completed: $label"
+}
+
 # row <ok|bad|warn> <name> <detail>
 row() {
   clear_loading
@@ -125,16 +171,103 @@ have() {
 crd_exists() { kubectl get crd "$1" >/dev/null 2>&1; }
 
 ask_yn() { # ask_yn "prompt" -> 0 yes / 1 no
-  local r; printf "  ${YELLOW}?${RESET} %s ${DIM}[y/N]${RESET} " "$1"; read -r r
-  [[ "$r" =~ ^[Yy]$ ]]
+  local r
+  while true; do
+    printf "  ${YELLOW}?${RESET} %s ${DIM}[y/N]${RESET} " "$1"
+    read -r r
+    case "$r" in
+      [Yy]) return 0 ;;
+      [Nn]|"") return 1 ;;
+      *) warn "Enter y or n." ;;
+    esac
+  done
+}
+
+confirm_done() {
+  local label=$1 r
+  if (( ASSUME_YES )); then
+    ok "Auto-confirmed: $label"
+    return 0
+  fi
+  while true; do
+    printf "  ${YELLOW}?${RESET} Type ${BOLD}confirm${RESET} once %s: " "$label"
+    read -r r
+    [[ "$r" == "confirm" ]] && return 0
+    warn "Type confirm to continue."
+  done
 }
 
 valid_namespace() {
   [[ ${#1} -le 63 && "$1" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]]
 }
 
+valid_nonempty() {
+  [[ -n "$1" ]]
+}
+
+valid_aws_region() {
+  [[ "$1" =~ ^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$ ]]
+}
+
+valid_iam_role_name() {
+  [[ ${#1} -le 64 && "$1" =~ ^[A-Za-z0-9+=,.@_-]+$ ]]
+}
+
+default_aws_role_name() {
+  local cluster="${AWS_CLUSTER:-cluster}"
+  printf 'pgdog-%s-%s' "$NAMESPACE" "$cluster"
+}
+
+valid_ingress_choice() {
+  case "$1" in 1|2|3|nginx|aws|gateway) return 0 ;; *) return 1 ;; esac
+}
+
+valid_controller_choice() {
+  case "$1" in 1|2|3|nginx|aws|both) return 0 ;; *) return 1 ;; esac
+}
+
+valid_dns_provider_choice() {
+  case "$1" in 1|2|route53|manual) return 0 ;; *) return 1 ;; esac
+}
+
 valid_acm_domain() {
   [[ ${#1} -le 253 && "$1" =~ ^(\*\.)?([A-Za-z0-9]([-A-Za-z0-9]{0,61}[A-Za-z0-9])?\.)+[A-Za-z0-9]([-A-Za-z0-9]{0,61}[A-Za-z0-9])?$ ]]
+}
+
+valid_host_in_zone() {
+  valid_acm_domain "$1" || return 1
+  local host="${1%.}" zone="${ZONE_NAME%.}"
+  [[ -n "$zone" && "$host" == *".${zone}" && "$host" != "$zone" ]]
+}
+
+prompt_until() {
+  local prompt=$1 default=${2:-} validator=${3:-} invalid=${4:-"Invalid input."}
+  while true; do
+    if [[ -n "$default" ]]; then
+      printf "  ${YELLOW}?${RESET} %s ${DIM}[%s]${RESET}: " "$prompt" "$default"
+    else
+      printf "  ${YELLOW}?${RESET} %s: " "$prompt"
+    fi
+    read -r PROMPT_VALUE
+    PROMPT_VALUE="${PROMPT_VALUE:-$default}"
+    if [[ -z "$validator" ]] || "$validator" "$PROMPT_VALUE"; then
+      return 0
+    fi
+    warn "$invalid"
+  done
+}
+
+prompt_select() {
+  local prompt=$1 count=$2 default=${3:-1}
+  while true; do
+    printf "  ${YELLOW}?${RESET} %s ${DIM}[1-%d, default %s]${RESET}: " "$prompt" "$count" "$default"
+    read -r PROMPT_VALUE
+    PROMPT_VALUE="${PROMPT_VALUE:-$default}"
+    if [[ "$PROMPT_VALUE" =~ ^[0-9]+$ ]] && (( PROMPT_VALUE >= 1 && PROMPT_VALUE <= count )); then
+      return 0
+    fi
+    warn "Invalid selection."
+  done
 }
 
 # Best-effort open a URL in the host browser (no-op if no opener available).
@@ -177,17 +310,12 @@ choose_mode() {
   printf "    ${BOLD}1)${RESET} nginx     ${DIM}ingress-nginx + cert-manager (Let's Encrypt TLS)${RESET}\n"
   printf "    ${BOLD}2)${RESET} aws       ${DIM}AWS Load Balancer Controller (ALB + ACM TLS)${RESET}\n"
   printf "    ${BOLD}3)${RESET} gateway   ${DIM}Gateway API HTTPRoute (TLS at the Gateway)${RESET}\n"
-  local choice
-  while true; do
-    printf "  ${YELLOW}?${RESET} Press enter to accept ${BOLD}%s${RESET}, or choose 1/2/3 ${DIM}[%s]${RESET} " "$default" "$dnum"
-    read -r choice
-    case "${choice:-$dnum}" in
-      1|nginx)   MODE="nginx";   break ;;
-      2|aws)     MODE="aws";     break ;;
-      3|gateway) MODE="gateway"; break ;;
-      *) warn "Enter 1 (nginx), 2 (aws), or 3 (gateway)." ;;
-    esac
-  done
+  prompt_until "Press enter to accept ${default}, or choose 1/2/3" "$dnum" valid_ingress_choice "Enter 1 (nginx), 2 (aws), or 3 (gateway)."
+  case "$PROMPT_VALUE" in
+    1|nginx) MODE="nginx" ;;
+    2|aws) MODE="aws" ;;
+    3|gateway) MODE="gateway" ;;
+  esac
   ok "Ingress mode: ${BOLD}${MODE}${RESET}"
 }
 
@@ -205,18 +333,9 @@ prompt_namespace() {
   fi
 
   step "Namespace" "Kubernetes namespace for the control chart"
-  local ns
-  while true; do
-    printf "  ${YELLOW}?${RESET} Install namespace ${DIM}[%s]${RESET}: " "$NAMESPACE"
-    read -r ns
-    ns="${ns:-$NAMESPACE}"
-    if valid_namespace "$ns"; then
-      NAMESPACE="$ns"
-      ok "Namespace: ${BOLD}${NAMESPACE}${RESET}"
-      return 0
-    fi
-    warn "Use a valid Kubernetes namespace name: lowercase alphanumerics and '-', up to 63 chars."
-  done
+  prompt_until "Install namespace" "$NAMESPACE" valid_namespace "Use a valid Kubernetes namespace name: lowercase alphanumerics and '-', up to 63 chars."
+  NAMESPACE="$PROMPT_VALUE"
+  ok "Namespace: ${BOLD}${NAMESPACE}${RESET}"
 }
 
 # ─────────────────────────── gateway details ───────────────────────────
@@ -237,15 +356,36 @@ prompt_gateway() {
     def_name=$(awk '{print $2}' <<< "$line")
     [[ -n "$def_name" ]] && info "Detected Gateway: ${BOLD}${def_name}${RESET} in ${BOLD}${def_ns}${RESET}"
   fi
-  printf "  ${YELLOW}?${RESET} Gateway name ${DIM}[%s]${RESET}: " "${def_name:-required}"
-  read -r GATEWAY_NAME; GATEWAY_NAME="${GATEWAY_NAME:-$def_name}"
-  printf "  ${YELLOW}?${RESET} Gateway namespace ${DIM}[%s]${RESET}: " "${def_ns:-required}"
-  read -r GATEWAY_NAMESPACE; GATEWAY_NAMESPACE="${GATEWAY_NAMESPACE:-$def_ns}"
-  printf "  ${YELLOW}?${RESET} Listener sectionName ${DIM}(optional, blank = all)${RESET}: "
-  read -r GATEWAY_SECTION
-  if [[ -z "$GATEWAY_NAME" || -z "$GATEWAY_NAMESPACE" ]]; then
-    warn "Gateway name and namespace are required for gateway mode."
+  prompt_until "Gateway name" "$def_name" valid_nonempty "Gateway name is required."
+  GATEWAY_NAME="$PROMPT_VALUE"
+  prompt_until "Gateway namespace" "$def_ns" valid_namespace "Use a valid Kubernetes namespace name: lowercase alphanumerics and '-', up to 63 chars."
+  GATEWAY_NAMESPACE="$PROMPT_VALUE"
+  prompt_until "Listener sectionName (optional, blank = all)" "" "" ""
+  GATEWAY_SECTION="$PROMPT_VALUE"
+}
+
+# ───────────────────────────── DNS provider ────────────────────────────
+prompt_dns_provider() {
+  [[ -n "$DNS_PROVIDER" ]] && return 0
+  if ! have aws; then
+    DNS_PROVIDER="manual"
+    info "DNS mode: ${BOLD}manual${RESET} ${DIM}(AWS CLI not found)${RESET}"
+    return 0
   fi
+  if (( ASSUME_YES )); then
+    DNS_PROVIDER="route53"
+    ok "DNS mode: ${BOLD}Route53${RESET}"
+    return 0
+  fi
+
+  printf "    ${BOLD}1)${RESET} Route53   ${DIM}create the DNS record with AWS Route53${RESET}\n"
+  printf "    ${BOLD}2)${RESET} Manual    ${DIM}show the record for you to create yourself${RESET}\n"
+  prompt_until "Choose DNS setup" 1 valid_dns_provider_choice "Enter 1 (Route53) or 2 (Manual)."
+  case "$PROMPT_VALUE" in
+    1|route53) DNS_PROVIDER="route53" ;;
+    2|manual) DNS_PROVIDER="manual" ;;
+  esac
+  ok "DNS mode: ${BOLD}${DNS_PROVIDER}${RESET}"
 }
 
 # ───────────────────────── hostname selection ──────────────────────────
@@ -253,18 +393,28 @@ prompt_gateway() {
 # lists the Route53 hosted zones (read-only) so you can pick one and build
 # the host from it; the chosen zone is remembered and reused in the DNS step.
 prompt_host() {
-  if [[ -n "$HOST" || -n "$VALUES_FILE" ]]; then return 0; fi
+  if [[ -n "$VALUES_FILE" ]]; then return 0; fi
   if (( ASSUME_YES )); then return 0; fi
 
   step "Hostname" "External hostname for the dashboard (ingress.host)"
-  if have aws && choose_hosted_zone; then
-    printf "  ${YELLOW}?${RESET} Record hostname ${DIM}[pgdog.%s]${RESET}: " "$ZONE_NAME"
-    read -r HOST
-    HOST="${HOST:-pgdog.$ZONE_NAME}"
+  prompt_dns_provider
+  if [[ "$DNS_PROVIDER" == "route53" ]] && choose_hosted_zone; then
+    if [[ -n "$HOST" ]] && ! valid_host_in_zone "$HOST"; then
+      warn "${HOST} is not a subdomain of ${ZONE_NAME}."
+      HOST=""
+    fi
+    if [[ -n "$HOST" ]]; then
+      ok "Hostname: ${BOLD}${HOST}${RESET}"
+      return 0
+    fi
+    prompt_until "Record hostname" "${NAMESPACE}.${ZONE_NAME}" valid_host_in_zone "Enter a subdomain of ${ZONE_NAME}, e.g. ${NAMESPACE}.${ZONE_NAME}."
+    HOST="$PROMPT_VALUE"
   else
-    have aws || info "AWS CLI not found — enter the hostname manually."
-    printf "  ${YELLOW}?${RESET} External hostname, e.g. control.acme.com: "
-    read -r HOST
+    [[ "$DNS_PROVIDER" == "manual" ]] && info "Manual DNS mode selected."
+    if [[ -z "$HOST" ]]; then
+      prompt_until "External hostname, e.g. control.acme.com" "" valid_acm_domain "Enter a valid DNS name, e.g. control.example.com."
+      HOST="$PROMPT_VALUE"
+    fi
   fi
   if [[ -n "$HOST" ]]; then ok "Hostname: ${BOLD}${HOST}${RESET}"; fi
 }
@@ -298,9 +448,8 @@ setup_github_oauth() {
       default_org=$(echo "$orgs" | head -n1)
     fi
   fi
-  printf "  ${YELLOW}?${RESET} GitHub org for the OAuth app ${DIM}[%s]${RESET}: " "${default_org:-blank = personal account}"
-  read -r org
-  org="${org:-$default_org}"
+  prompt_until "GitHub org for the OAuth app" "$default_org" "" ""
+  org="$PROMPT_VALUE"
   if [[ -n "$org" ]]; then
     create_url="https://github.com/organizations/${org}/settings/applications/new"
   else
@@ -316,16 +465,12 @@ Authorization callback URL: ${callback}"
   if ask_yn "Open this URL in your browser?"; then open_url "$create_url"; fi
 
   info "After 'Register application', generate a client secret, then paste both:"
-  printf "  ${YELLOW}?${RESET} Client ID: ";     read -r GH_CLIENT_ID
-  printf "  ${YELLOW}?${RESET} Client secret: "; read -r GH_CLIENT_SECRET
+  prompt_until "Client ID" "" valid_nonempty "Client ID is required."
+  GH_CLIENT_ID="$PROMPT_VALUE"
+  prompt_until "Client secret" "" valid_nonempty "Client secret is required."
+  GH_CLIENT_SECRET="$PROMPT_VALUE"
   [[ -n "$org" ]] && GH_ALLOWED_ORGS="$org"
-
-  if [[ -n "$GH_CLIENT_ID" && -n "$GH_CLIENT_SECRET" ]]; then
-    ok "GitHub OAuth captured — config will be shown with the install step."
-  else
-    warn "Missing client id/secret — GitHub OAuth will be omitted."
-    GH_CLIENT_ID=""; GH_CLIENT_SECRET=""
-  fi
+  ok "GitHub OAuth captured — config will be shown with the install step."
 }
 
 # ───────────────────────────── AWS ACM TLS ─────────────────────────────
@@ -355,17 +500,9 @@ setup_aws_acm_tls() {
   fi
   if ! valid_acm_domain "$HOST"; then
     warn "ACM requires a fully qualified domain name, e.g. control.example.com."
-    local acm_host=""
-    while true; do
-      printf "  ${YELLOW}?${RESET} Public DNS name for the ALB/ACM certificate: "
-      read -r acm_host
-      if valid_acm_domain "$acm_host"; then
-        HOST="$acm_host"
-        ok "Hostname: ${BOLD}${HOST}${RESET}"
-        break
-      fi
-      warn "Enter a valid DNS name with a domain suffix, e.g. pgdog-control-test.example.com."
-    done
+    prompt_until "Public DNS name for the ALB/ACM certificate" "" valid_acm_domain "Enter a valid DNS name with a domain suffix, e.g. pgdog-control-test.example.com."
+    HOST="$PROMPT_VALUE"
+    ok "Hostname: ${BOLD}${HOST}${RESET}"
   fi
 
   derive_eks_from_context || true
@@ -383,9 +520,8 @@ setup_aws_acm_tls() {
   fi
 
   [[ -n "$detected" ]] && info "Detected issued ACM certificate for ${BOLD}${HOST}${RESET}."
-  printf "  ${YELLOW}?${RESET} ACM certificate ARN ${DIM}[%s]${RESET}: " "${detected:-blank = print request commands}"
-  read -r AWS_CERT_ARN
-  AWS_CERT_ARN="${AWS_CERT_ARN:-$detected}"
+  prompt_until "ACM certificate ARN" "$detected" "" ""
+  AWS_CERT_ARN="$PROMPT_VALUE"
 
   if [[ -n "$AWS_CERT_ARN" ]]; then
     ok "ACM certificate: ${BOLD}${AWS_CERT_ARN}${RESET}"
@@ -397,53 +533,85 @@ setup_aws_acm_tls() {
   fi
   local zone="${ZONE_ID:-HOSTED_ZONE_ID}"
 
-  info "Request a DNS-validated ACM certificate, create the validation CNAME in Route53, wait for issuance, then re-run with --acm-cert-arn:"
-  snippet "CERT_ARN=\$(aws acm request-certificate \\
+  local request_cmd="aws acm request-certificate \\
 --region $region \\
 --domain-name $HOST \\
 --validation-method DNS \\
 --query CertificateArn \\
---output text)
+--output text"
+  info "Request a DNS-validated ACM certificate:"
+  if [[ "$region" == "AWS_REGION" ]]; then
+    warn "ACM certificate request still has placeholders; not running it."
+    snippet "$request_cmd"
+    die "ACM certificate ARN is required for AWS ALB HTTPS — request/validate a cert, then re-run this installer."
+  fi
 
-RR_NAME=\$(aws acm describe-certificate \\
---region $region \\
---certificate-arn \"\$CERT_ARN\" \\
---query 'Certificate.DomainValidationOptions[0].ResourceRecord.Name' \\
---output text)
+  confirm_command "ACM certificate request" "$request_cmd"
+  info "Running: ACM certificate request"
+  AWS_CERT_ARN=$(aws acm request-certificate \
+    --region "$region" \
+    --domain-name "$HOST" \
+    --validation-method DNS \
+    --query CertificateArn \
+    --output text)
+  ok "ACM certificate requested: ${BOLD}${AWS_CERT_ARN}${RESET}"
 
-RR_TYPE=\$(aws acm describe-certificate \\
---region $region \\
---certificate-arn \"\$CERT_ARN\" \\
---query 'Certificate.DomainValidationOptions[0].ResourceRecord.Type' \\
---output text)
+  loading "ACM DNS validation"
+  local rr_name="" rr_type="" rr_value="" attempt
+  for attempt in {1..20}; do
+    rr_name=$(aws acm describe-certificate \
+      --region "$region" \
+      --certificate-arn "$AWS_CERT_ARN" \
+      --query 'Certificate.DomainValidationOptions[0].ResourceRecord.Name' \
+      --output text 2>/dev/null || true)
+    rr_type=$(aws acm describe-certificate \
+      --region "$region" \
+      --certificate-arn "$AWS_CERT_ARN" \
+      --query 'Certificate.DomainValidationOptions[0].ResourceRecord.Type' \
+      --output text 2>/dev/null || true)
+    rr_value=$(aws acm describe-certificate \
+      --region "$region" \
+      --certificate-arn "$AWS_CERT_ARN" \
+      --query 'Certificate.DomainValidationOptions[0].ResourceRecord.Value' \
+      --output text 2>/dev/null || true)
+    if [[ -n "$rr_name" && "$rr_name" != "None" && -n "$rr_type" && "$rr_type" != "None" && -n "$rr_value" && "$rr_value" != "None" ]]; then
+      break
+    fi
+    sleep 3
+  done
+  clear_loading
+  if [[ -z "$rr_name" || "$rr_name" == "None" || -z "$rr_type" || "$rr_type" == "None" || -z "$rr_value" || "$rr_value" == "None" ]]; then
+    die "ACM did not return DNS validation records yet — re-run with --acm-cert-arn $AWS_CERT_ARN after records are available."
+  fi
+  ok "ACM validation record: ${BOLD}${rr_name}${RESET} ${rr_type} ${rr_value}"
 
-RR_VALUE=\$(aws acm describe-certificate \\
---region $region \\
---certificate-arn \"\$CERT_ARN\" \\
---query 'Certificate.DomainValidationOptions[0].ResourceRecord.Value' \\
---output text)
-
-aws route53 change-resource-record-sets \\
+  local validation_cmd="aws route53 change-resource-record-sets \\
 --hosted-zone-id $zone \\
 --change-batch '{
   \"Comment\": \"ACM DNS validation for $HOST\",
   \"Changes\": [{
     \"Action\": \"UPSERT\",
     \"ResourceRecordSet\": {
-      \"Name\": \"'\"\$RR_NAME\"'\",
-      \"Type\": \"'\"\$RR_TYPE\"'\",
+      \"Name\": \"$rr_name\",
+      \"Type\": \"$rr_type\",
       \"TTL\": 300,
-      \"ResourceRecords\": [{ \"Value\": \"'\"\$RR_VALUE\"'\" }]
+      \"ResourceRecords\": [{ \"Value\": \"$rr_value\" }]
     }
   }]
 }'
 
 aws acm wait certificate-validated \\
 --region $region \\
---certificate-arn \"\$CERT_ARN\"
-
-echo \"\$CERT_ARN\""
-  die "ACM certificate ARN is required for AWS ALB HTTPS — request/validate a cert, then re-run this advisor."
+--certificate-arn \"$AWS_CERT_ARN\""
+  info "Create the ACM DNS validation record and wait for issuance:"
+  if [[ "$zone" == "HOSTED_ZONE_ID" ]]; then
+    warn "ACM DNS validation command still has placeholders; not running it."
+    snippet "$validation_cmd"
+    die "ACM certificate DNS validation needs a hosted zone — validate $AWS_CERT_ARN, then re-run with --acm-cert-arn."
+  else
+    confirm_and_run "ACM DNS validation record creation" "$validation_cmd"
+  fi
+  ok "ACM certificate: ${BOLD}${AWS_CERT_ARN}${RESET}"
 }
 
 detect_aws_alb_subnets() {
@@ -467,7 +635,7 @@ detect_aws_alb_subnets() {
 # ──────────────────────────── AWS / IRSA setup ─────────────────────────
 # The chart already supports EKS IRSA through control.aws.roleArn. This
 # section checks whether the current EKS cluster has an IAM OIDC provider
-# registered, then prints the commands to create the IAM role and attach the
+# registered, then creates the IAM role and attaches the
 # read-only RDS / CloudWatch policy the control plane needs.
 derive_eks_from_context() {
   local ctx cluster_ref
@@ -513,7 +681,7 @@ abort_for_missing_oidc_provider() {
   if [[ -n "$OIDC_HOST" ]]; then
     warn "The cluster has an OIDC issuer, but the matching IAM OIDC provider is not registered."
     require_eksctl
-    info "Create the IAM OIDC provider, then re-run this advisor:"
+    info "Create the IAM OIDC provider, then re-run this installer:"
     snippet "eksctl utils associate-iam-oidc-provider \\
 --cluster $cluster \\
 --region $region \\
@@ -556,7 +724,7 @@ setup_aws_access() {
   fi
 
   if (( ASSUME_YES && CONFIGURE_AWS == 0 )); then
-    info "Skipped — pass --aws-role-arn for an existing role or --aws-role-name with --aws-cluster/--aws-region to print role creation commands."
+    info "Skipped — pass --aws-role-arn for an existing role or --aws-role-name with --aws-cluster/--aws-region to create the IAM role."
     return 0
   fi
   if ! have aws; then
@@ -577,17 +745,23 @@ setup_aws_access() {
 
   derive_eks_from_context || true
   if (( ASSUME_YES == 0 )); then
-    printf "  ${YELLOW}?${RESET} EKS cluster name ${DIM}[%s]${RESET}: " "${AWS_CLUSTER:-required}"
-    read -r _cluster; AWS_CLUSTER="${_cluster:-$AWS_CLUSTER}"
-    printf "  ${YELLOW}?${RESET} AWS region ${DIM}[%s]${RESET}: " "${AWS_REGION:-required}"
-    read -r _region; AWS_REGION="${_region:-$AWS_REGION}"
-    printf "  ${YELLOW}?${RESET} IAM role name ${DIM}[%s]${RESET}: " "$AWS_ROLE_NAME"
-    read -r _role; AWS_ROLE_NAME="${_role:-$AWS_ROLE_NAME}"
+    prompt_until "EKS cluster name" "$AWS_CLUSTER" valid_nonempty "EKS cluster name is required."
+    AWS_CLUSTER="$PROMPT_VALUE"
+    prompt_until "AWS region" "$AWS_REGION" valid_aws_region "Enter a valid AWS region, e.g. us-west-2."
+    AWS_REGION="$PROMPT_VALUE"
+    if (( AWS_ROLE_NAME_FROM_FLAG == 0 )); then
+      AWS_ROLE_NAME="$(default_aws_role_name)"
+    fi
+    prompt_until "IAM role name" "$AWS_ROLE_NAME" valid_iam_role_name "Use a valid IAM role name: letters, numbers, and +=,.@_- up to 64 chars."
+    AWS_ROLE_NAME="$PROMPT_VALUE"
   fi
 
   if [[ -z "$AWS_CLUSTER" || -z "$AWS_REGION" ]]; then
     warn "Missing cluster or region — IAM commands will use placeholders."
     return 0
+  fi
+  if [[ -z "$AWS_ROLE_NAME" ]]; then
+    AWS_ROLE_NAME="$(default_aws_role_name)"
   fi
 
   if discover_eks_oidc; then
@@ -743,7 +917,7 @@ aws eks update-kubeconfig --name <CLUSTER> --region <REGION>"
       fi
       if (( MISSING_NGINX || MISSING_CERTMGR || MISSING_ISSUER )); then
         advise_prereqs
-        die "nginx prerequisites are missing — run the commands above, then re-run this advisor."
+        die "nginx prerequisites were missing — finish any pending setup, then re-run this installer."
       fi
       ;;
     aws)
@@ -792,7 +966,9 @@ advise_ingress_nginx() {
   derive_eks_from_context || true
   local cluster="${AWS_CLUSTER:-CLUSTER_NAME}"
   local region="${AWS_REGION:-AWS_REGION}"
-  snippet "CLUSTER=$cluster
+  if [[ "$cluster" == "CLUSTER_NAME" || "$region" == "AWS_REGION" ]]; then
+    warn "Cluster or region is unknown, so the ingress-nginx install command still has placeholders."
+    snippet "CLUSTER=$cluster
 REGION=$region
 SUBNETS=\$(aws eks describe-cluster \\
 --name \"\$CLUSTER\" \\
@@ -807,6 +983,38 @@ helm install ingress-nginx ingress-nginx/ingress-nginx \\
 --set controller.service.type=LoadBalancer \\
 --set-json 'controller.service.annotations={\"service.beta.kubernetes.io/aws-load-balancer-scheme\":\"internet-facing\",\"service.beta.kubernetes.io/aws-load-balancer-subnets\":\"'\"\$SUBNETS\"'\"}'
 kubectl -n ingress-nginx get svc ingress-nginx-controller -w   # note the external address"
+    return 0
+  fi
+  local subnets=""
+  if have aws; then
+    loading "EKS subnets"
+    subnets=$(aws eks describe-cluster \
+      --name "$cluster" \
+      --region "$region" \
+      --query 'join(`,`, cluster.resourcesVpcConfig.subnetIds)' \
+      --output text 2>/dev/null || true)
+    clear_loading
+    [[ "$subnets" == "None" ]] && subnets=""
+  fi
+  if [[ -z "$subnets" ]]; then
+    warn "Could not resolve EKS subnets, so the ingress-nginx install command still has placeholders."
+    snippet "helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo update
+helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \\
+--namespace ingress-nginx --create-namespace \\
+--set controller.service.type=LoadBalancer \\
+--set-json 'controller.service.annotations={\"service.beta.kubernetes.io/aws-load-balancer-scheme\":\"internet-facing\",\"service.beta.kubernetes.io/aws-load-balancer-subnets\":\"<SUBNET_IDS>\"}'"
+    return 0
+  fi
+  ok "EKS subnets: ${BOLD}${subnets}${RESET}"
+  confirm_and_run "ingress-nginx installation" "helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo update
+helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \\
+--namespace ingress-nginx --create-namespace \\
+--set controller.service.type=LoadBalancer \\
+--set-json 'controller.service.annotations={\"service.beta.kubernetes.io/aws-load-balancer-scheme\":\"internet-facing\",\"service.beta.kubernetes.io/aws-load-balancer-subnets\":\"$subnets\"}'"
+  info "Watch for the external address with:"
+  snippet "kubectl -n ingress-nginx get svc ingress-nginx-controller -w"
 }
 
 advise_eksctl_install() {
@@ -847,7 +1055,7 @@ eksctl version"
 require_eksctl() {
   have eksctl && return 0
   advise_eksctl_install
-  die "eksctl is required — install it, then re-run this advisor."
+  die "eksctl is required — install it, then re-run this installer."
 }
 
 advise_aws_load_balancer_controller() {
@@ -868,6 +1076,13 @@ advise_aws_load_balancer_controller() {
   fi
   account_id="${account_id:-ACCOUNT_ID}"
   vpc_id="${vpc_id:-VPC_ID}"
+  local policy_exists=0
+  if [[ "$account_id" != "ACCOUNT_ID" ]] && have aws; then
+    if aws iam get-policy --policy-arn "arn:aws:iam::${account_id}:policy/AWSLoadBalancerControllerIAMPolicy" >/dev/null 2>&1; then
+      policy_exists=1
+      ok "AWSLoadBalancerControllerIAMPolicy already exists."
+    fi
+  fi
   local oidc_cmd=""
   if discover_eks_oidc; then
     if (( IAM_OIDC_PROVIDER_EXISTS )); then
@@ -883,17 +1098,18 @@ advise_aws_load_balancer_controller() {
   else
     warn "Could not verify IAM OIDC provider status — check it before creating the IAM ServiceAccount."
   fi
-  snippet "${oidc_cmd}curl -fsSLo aws-load-balancer-controller-policy.json \\
+  local policy_cmd=""
+  if (( policy_exists == 0 )); then
+    policy_cmd="curl -fsSLo aws-load-balancer-controller-policy.json \\
 https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/main/docs/install/iam_policy.json
 
-aws iam get-policy \\
---policy-arn \"arn:aws:iam::${account_id}:policy/AWSLoadBalancerControllerIAMPolicy\" \\
->/dev/null 2>&1 || \\
 aws iam create-policy \\
 --policy-name AWSLoadBalancerControllerIAMPolicy \\
 --policy-document file://aws-load-balancer-controller-policy.json
 
-eksctl create iamserviceaccount \\
+"
+  fi
+  local controller_cmd="${oidc_cmd}${policy_cmd}eksctl create iamserviceaccount \\
 --cluster \"$cluster\" \\
 --region \"$region\" \\
 --namespace kube-system \\
@@ -913,60 +1129,77 @@ helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-contro
 --set serviceAccount.name=aws-load-balancer-controller
 
 kubectl -n kube-system rollout status deployment/aws-load-balancer-controller"
+  if [[ "$cluster" == "CLUSTER_NAME" || "$region" == "AWS_REGION" || "$account_id" == "ACCOUNT_ID" || "$vpc_id" == "VPC_ID" ]]; then
+    warn "AWS Load Balancer Controller command still has placeholders; not running it."
+    snippet "$controller_cmd"
+    return 0
+  fi
+  confirm_and_run "AWS Load Balancer Controller installation" "$controller_cmd"
 }
 
 choose_controller_to_install() {
   heading "Ingress controller setup"
   if (( ASSUME_YES )); then
-    info "Non-interactive mode: showing both controller install options."
+    info "Non-interactive mode: preparing both controller install options."
     advise_ingress_nginx
     advise_aws_load_balancer_controller
     return 0
   fi
 
-  info "Choose the controller you want to install, then re-run this advisor after it is ready."
+  info "Choose the controller you want to install, then re-run this installer after it is ready."
   printf "    ${BOLD}1)${RESET} nginx     ${DIM}ingress-nginx LoadBalancer; use nginx mode${RESET}\n"
   printf "    ${BOLD}2)${RESET} aws       ${DIM}AWS Load Balancer Controller; use aws mode${RESET}\n"
-  printf "    ${BOLD}3)${RESET} both      ${DIM}print both sets of instructions${RESET}\n"
+  printf "    ${BOLD}3)${RESET} both      ${DIM}prepare both install options${RESET}\n"
 
-  local choice
-  while true; do
-    printf "  ${YELLOW}?${RESET} Choose controller install instructions ${DIM}[1]${RESET}: "
-    read -r choice
-    case "${choice:-1}" in
-      1|nginx)
-        advise_ingress_nginx
-        return 0
-        ;;
-      2|aws)
-        advise_aws_load_balancer_controller
-        return 0
-        ;;
-      3|both)
-        advise_ingress_nginx
-        advise_aws_load_balancer_controller
-        return 0
-        ;;
-      *)
-        warn "Enter 1 (nginx), 2 (aws), or 3 (both)."
-        ;;
-    esac
-  done
+  prompt_until "Choose controller install instructions" 1 valid_controller_choice "Enter 1 (nginx), 2 (aws), or 3 (both)."
+  case "$PROMPT_VALUE" in
+    1|nginx)
+      advise_ingress_nginx
+      ;;
+    2|aws)
+      advise_aws_load_balancer_controller
+      ;;
+    3|both)
+      advise_ingress_nginx
+      advise_aws_load_balancer_controller
+      ;;
+  esac
 }
 
 advise_cert_manager() {
   info "Install cert-manager:"
-  snippet "helm repo add jetstack https://charts.jetstack.io
+  confirm_and_run "cert-manager installation" "helm repo add jetstack https://charts.jetstack.io
 helm repo update
-helm install cert-manager jetstack/cert-manager \\
+helm upgrade --install cert-manager jetstack/cert-manager \\
 --namespace cert-manager --create-namespace \\
 --set crds.enabled=true"
 }
 
 advise_clusterissuer() {
   local email="${ACME_EMAIL:-your-email@example.com}"
-  info "Create a Let's Encrypt ClusterIssuer (edit the email):"
-  snippet "kubectl apply -f - <<'EOF'
+  if [[ -z "$ACME_EMAIL" ]]; then
+    warn "No ACME email was provided; pass --email before creating the ClusterIssuer."
+    info "ClusterIssuer command:"
+    snippet "kubectl apply -f - <<'EOF'
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ${email}
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: nginx
+EOF"
+    return 0
+  fi
+  info "Create a Let's Encrypt ClusterIssuer:"
+  confirm_and_run "Let's Encrypt ClusterIssuer creation" "kubectl apply -f - <<'EOF'
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
@@ -1006,7 +1239,7 @@ advise_aws_iam_role() {
 
   local cluster="${AWS_CLUSTER:-CLUSTER_NAME}"
   local region="${AWS_REGION:-AWS_REGION}"
-  local role="${AWS_ROLE_NAME:-pgdog-control}"
+  local role="${AWS_ROLE_NAME:-$(default_aws_role_name)}"
   if [[ -z "$AWS_ACCOUNT_ID" ]] && have aws; then
     AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || true)
   fi
@@ -1022,8 +1255,7 @@ advise_aws_iam_role() {
 
   ok "IAM OIDC provider is present — IRSA can be configured for this cluster."
 
-  info "Create the IAM trust policy scoped to this chart's ServiceAccount:"
-  snippet "cat > trust-policy.json <<'EOF'
+  local iam_cmd="cat > trust-policy.json <<'EOF'
 {
   \"Version\": \"2012-10-17\",
   \"Statement\": [
@@ -1042,10 +1274,9 @@ advise_aws_iam_role() {
     }
   ]
 }
-EOF"
+EOF
 
-  info "Create the read-only RDS / CloudWatch permissions policy:"
-  snippet "cat > pgdog-control-aws-policy.json <<'EOF'
+cat > pgdog-control-aws-policy.json <<'EOF'
 {
   \"Version\": \"2012-10-17\",
   \"Statement\": [
@@ -1078,22 +1309,23 @@ EOF"
     }
   ]
 }
-EOF"
+EOF
 
-  info "Create the role and attach the policy:"
-  snippet "aws iam create-role \\
+aws iam create-role \\
 --role-name \"$role\" \\
 --assume-role-policy-document file://trust-policy.json
 
 aws iam put-role-policy \\
 --role-name \"$role\" \\
 --policy-name PgDogControlReadRdsAndCloudWatch \\
---policy-document file://pgdog-control-aws-policy.json
-
-aws iam get-role \\
---role-name \"$role\" \\
---query 'Role.Arn' \\
---output text"
+--policy-document file://pgdog-control-aws-policy.json"
+  if [[ "$account" == "ACCOUNT_ID" || "$oidc" == "OIDC_HOST" ]]; then
+    warn "IAM role command still has placeholders; not running it."
+    snippet "$iam_cmd"
+    return 0
+  fi
+  info "Create the IAM trust policy, permissions policy, role, and inline policy:"
+  confirm_and_run "IAM role creation" "$iam_cmd"
 
   AWS_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID:-ACCOUNT_ID}:role/${role}"
 }
@@ -1145,17 +1377,16 @@ advise_install() {
   install_cmd="$install_cmd \\
 --set-string 'control.rbac.writeNamespaces[0]=$NAMESPACE'"
   info "Add the chart repo, then install the release:"
-  snippet "helm repo add $REPO_NAME $REPO_URL
+  confirm_and_run "PgDog control plane installation" "helm repo add $REPO_NAME $REPO_URL
 helm repo update
 $install_cmd"
   if [[ -n "$GH_CLIENT_ID" ]]; then
     warn "The client secret is passed via --set, so it will appear in your shell history."
   fi
-  info "Watch the workloads come up:"
+  info "Watch the workloads come up with:"
   snippet "kubectl -n $NAMESPACE get pods -l app.kubernetes.io/instance=$RELEASE -w"
   if [[ "$MODE" == "nginx" ]]; then
-    info "Make sure the DNS record above already resolves — cert-manager issues the"
-    info "certificate during install and will retry until the hostname points here."
+    info "Wait for cert-manager to issue the TLS certificate. This can take a minute or two."
   else
     info "The ALB is created during install; create the DNS record (next step) once"
     info "its address appears."
@@ -1209,25 +1440,19 @@ choose_hosted_zone() {
       "$((i + 1))" "${names[$i]}" "${ids[$i]}" "$tag"
   done
 
-  local choice
-  printf "  ${YELLOW}?${RESET} Select a hosted zone ${DIM}[1-%d, default 1]${RESET}: " "${#ids[@]}"
-  read -r choice
-  choice="${choice:-1}"
-  if ! [[ "$choice" =~ ^[0-9]+$ ]] || (( choice < 1 || choice > ${#ids[@]} )); then
-    warn "Invalid selection."; return 1
-  fi
+  prompt_select "Select a hosted zone" "${#ids[@]}" 1
+  local choice="$PROMPT_VALUE"
   ZONE_ID="${ids[$((choice - 1))]}"; ZONE_NAME="${names[$((choice - 1))]}"
   ok "Selected zone: ${BOLD}${ZONE_NAME}${RESET} (${ZONE_ID})"
 }
 
 advise_dns() {
   heading "DNS  ${DIM}(point your hostname at the load balancer)${RESET}"
+  prompt_dns_provider
 
-  # Read-only helper: offer the hosted-zone list so the command has a real id.
-  if have aws && [[ -z "$ZONE_ID" ]] && (( ASSUME_YES == 0 )); then
+  # Read-only helper: offer the hosted-zone list so the Route53 command has a real id.
+  if [[ "$DNS_PROVIDER" == "route53" ]] && have aws && [[ -z "$ZONE_ID" ]] && (( ASSUME_YES == 0 )); then
     choose_hosted_zone || true
-  elif ! have aws; then
-    info "AWS CLI not found — fill in the hosted zone id manually below."
   fi
 
   local zone="${ZONE_ID:-<HOSTED_ZONE_ID>}"
@@ -1255,10 +1480,8 @@ advise_dns() {
 
   # nginx needs the record live before install so cert-manager's HTTP-01 passes.
   if [[ "$MODE" == "nginx" ]]; then
-    warn "Create this DNS record BEFORE installing the chart (next step)."
     if (( target_known )); then
-      info "The ingress-nginx LoadBalancer is already up (address above), so create the"
-      info "record now — cert-manager needs ${BOLD}${record}${RESET} to resolve before issuing the cert."
+      info "cert-manager needs ${BOLD}${record}${RESET} to resolve before issuing the TLS certificate."
     else
       info "cert-manager needs ${BOLD}${record}${RESET} to resolve to the ingress-nginx LoadBalancer"
       info "before it can complete the Let's Encrypt HTTP-01 challenge. Install ingress-nginx"
@@ -1270,8 +1493,17 @@ advise_dns() {
     warn "A CNAME at the zone apex (${record}) is invalid — use a subdomain or a Route53 ALIAS record."
   fi
 
-  info "Create the Route53 record:"
-  snippet "aws route53 change-resource-record-sets \\
+  if [[ "$DNS_PROVIDER" == "manual" ]]; then
+    info "Create this DNS record with your DNS provider:"
+    snippet "Name: $record
+Type: $rtype
+Value: $target
+TTL: 300"
+    confirm_done "the DNS record exists"
+    return 0
+  fi
+
+  local dns_cmd="CHANGE_ID=\$(aws route53 change-resource-record-sets \\
 --hosted-zone-id $zone \\
 --change-batch '{
     \"Comment\": \"PgDog control plane dashboard\",
@@ -1284,15 +1516,25 @@ advise_dns() {
         \"ResourceRecords\": [{ \"Value\": \"$target\" }]
       }
     }]
-  }'"
-  info "The command prints a change id; wait for it to propagate with:"
-  snippet "aws route53 wait resource-record-sets-changed --id <CHANGE_ID>"
+  }' \\
+--query 'ChangeInfo.Id' \\
+--output text)
+
+aws route53 wait resource-record-sets-changed --id \"\$CHANGE_ID\"
+echo \"\$CHANGE_ID\""
+  if [[ "$zone" == "<HOSTED_ZONE_ID>" || "$target" == "<LB_ADDRESS>" ]]; then
+    warn "DNS command still has placeholders; not running it."
+    snippet "$dns_cmd"
+    return 0
+  fi
+  info "Creating the Route53 record and waiting for propagation:"
+  confirm_and_run "Route53 DNS record creation" "$dns_cmd"
 }
 
 # ──────────────────────────── args / main ──────────────────────────────
 usage() {
   cat <<EOF
-PgDog EE Control Plane install advisor (read-only — changes nothing)
+PgDog EE Control Plane installer
 
 Usage: $0 [options]
   -r, --release NAME    Helm release name              (default: pgdog-control)
@@ -1300,25 +1542,26 @@ Usage: $0 [options]
   -m, --mode MODE       Ingress mode: nginx | aws | gateway
                                                     (prompted if omitted)
       --host HOST       External hostname (ingress.host)
-  -f, --values FILE     values.yaml referenced in the printed helm command
+  -f, --values FILE     values.yaml referenced in the helm install command
       --email EMAIL     ACME email shown in the ClusterIssuer manifest
       --aws-cluster NAME
                        EKS cluster name for OIDC / IRSA checks
       --aws-region REGION
                        AWS region for EKS and the control pod
       --aws-role-name NAME
-                       IAM role name to create          (default: pgdog-control)
+                       IAM role name to create          (default: pgdog-<namespace>-<cluster>)
       --aws-role-arn ARN
                        Existing IAM role ARN to set as control.aws.roleArn
       --acm-cert-arn ARN
                        ACM certificate ARN for AWS ALB HTTPS
-  -y, --yes             Non-interactive: assume defaults, skip all prompts
+  -y, --yes             Non-interactive: assume defaults and run commands
   -h, --help            Show this help
 
-This tool inspects your machine and cluster (read-only) and PRINTS the
-helm / kubectl / aws commands to run. It never installs, applies, or
-creates anything. The DNS step may list Route53 hosted zones (read-only) to put
-a real zone id into the printed DNS command.
+This tool inspects your machine and cluster, shows each mutating helm /
+kubectl / aws command block, and runs it after you type "confirm".
+With --yes, generated command blocks run automatically.
+The DNS step may list Route53 hosted zones to put a real zone id into the
+Route53 change.
 
 Testing: set FAKE_MISSING="aws jq" to force those tools to report as
 missing without changing your PATH (see test/ for a full harness).
@@ -1336,7 +1579,7 @@ parse_args() {
       --email)        ACME_EMAIL=$2;  shift 2 ;;
       --aws-cluster)  AWS_CLUSTER=$2; shift 2 ;;
       --aws-region)   AWS_REGION=$2;  shift 2 ;;
-      --aws-role-name) AWS_ROLE_NAME=$2; CONFIGURE_AWS=1; shift 2 ;;
+      --aws-role-name) AWS_ROLE_NAME=$2; AWS_ROLE_NAME_FROM_FLAG=1; CONFIGURE_AWS=1; shift 2 ;;
       --aws-role-arn) AWS_ROLE_ARN=$2; CONFIGURE_AWS=1; shift 2 ;;
       --acm-cert-arn) AWS_CERT_ARN=$2; shift 2 ;;
       -y|--yes)       ASSUME_YES=1;   shift   ;;
@@ -1381,7 +1624,8 @@ main() {
     advise_install
     advise_dns
   fi
-  printf "\n${GREEN}${BOLD}Advice complete.${RESET} ${DIM}Review the commands above and run them yourself.${RESET}\n"
+  printf "\n${GREEN}${BOLD}Install complete.${RESET}\n"
+  [[ -n "$HOST" ]] && boxed_line "PgDog Control Plane: https://$HOST"
 }
 
 main "$@"
