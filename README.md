@@ -5,20 +5,29 @@ Production-ready [Helm](https://helm.sh) chart for the PgDog Enterprise
 
 ## Installation
 
-The fastest way to install is the guided advisor script. It inspects your
-machine and cluster (read-only), then prints the exact `helm` / `kubectl` /
-`aws` commands to run:
+### Guided installation
+
+The fastest way to install is the guided installer script. It uses the AWS and Kube CLI to
+inspect your cluster and can execute all the necessary commands to install this chart:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/pgdogdev/helm-ee/main/install.sh | bash
 ```
 
-Or install manually with Helm (see for options below):
+### Manual install
+
+Install the chart manually with Helm (read below for configuration options):
 
 ```sh
 helm repo add pgdogdev-ee https://helm-ee.pgdog.dev
 helm install control pgdogdev-ee/pgdog-control
 ```
+
+The three somewhat complex steps are:
+
+1. Configuring AWS RDS/CloudWatch permissions
+2. Setting up an Ingress with TLS termination
+3. Configuring OAuth for the control plane dashboard
 
 ## Chart summary
 
@@ -45,14 +54,14 @@ metrics. The Redis deployment has the following components:
 
 ### Ingress
 
-The PgDog control plane has a web dashboard. It can be accessed through the Ingress or HTTPRoute the chart creates. The chart supports 4 modes:
+The PgDog control plane has a web dashboard. It can be accessed through the Ingress or HTTPRoute the chart creates. The chart supports 4 presets (called modes):
 
 - Nginx
 - AWS ALB
 - Gateway API
 - Default
 
-Nginx and AWS ALB are Ingress-based presets with set annotations that should work for most deployments. Gateway API renders an HTTPRoute instead of an Ingress — use it when traffic enters through a Gateway controller. The Default mode allows the user to configure all Ingress options (class, annotations, etc.).
+Nginx and AWS ALB are Ingress-based presets with set annotations that should work for most deployments. Gateway API renders an HTTPRoute instead of an Ingress; use it when traffic enters through a Gateway controller. The Default mode allows the user to configure all Ingress options (class, annotations, etc.).
 
 The mode is selected by `ingress.mode`. In `nginx`, `aws`, and `default` modes, the chart renders exactly one Ingress, whose rule always routes `/` to the control Service on port 80. In `gateway` mode, the chart renders an HTTPRoute instead. Only one of these resources is created per install.
 
@@ -105,11 +114,11 @@ letsencrypt-staging   True    42d
 
 Use the `NAME` column verbatim as `ingress.nginx.clusterIssuer`. `ClusterIssuer` is cluster-scoped, so you don't need `-n`. The issuer doesn't have to live in the release namespace.
 
-Check that `READY` is `True`. If it isn't, run `kubectl describe clusterissuer <name>` and fix the issuer first. Otherwise the cert request will stay in `Pending`.
+Check that `READY` is `True`. If it isn't, run `kubectl describe clusterissuer <name>` and fix the issuer first. Otherwise the cert request will stay in `Pending` state.
 
 If the command returns `error: the server doesn't have a resource type "clusterissuers"`, cert-manager isn't installed. See below.
 
-##### Installing ingress-nginx and cert-manager from scratch
+##### Installing `ingress-nginx` and `cert-manager`
 
 On a cluster with neither component, install both before installing this chart. Order matters. Install ingress-nginx first. Then cert-manager. Then create a ClusterIssuer.
 
@@ -215,11 +224,11 @@ ingress:
 | `ingress.gateway.namespace` | Namespace of the Gateway resource (string, required). |
 | `ingress.gateway.sectionName` | Selects a specific listener on the Gateway. Leave empty to attach to all listeners that match the hostname (string, optional). |
 
-The chart does not create or manage the Gateway itself — that's expected to exist already. The HTTPRoute routes all paths (`/`) to the control Service on port 80, scoped to the hostname in `ingress.host`. TLS, certificates, and load balancer configuration are handled by the Gateway and its associated resources.
+The chart does not create or manage the Gateway itself; that's expected to exist already. The HTTPRoute routes all paths (`/`) to the control Service on port 80, scoped to the hostname in `ingress.host`. TLS, certificates, and load balancer configuration are handled by the Gateway and its associated resources.
 
 ### Default
 
-The Default mode is selected with `ingress.mode: default`. The chart adds nothing on top: no annotations, no `ingressClassName`, no `tls` block. You can route through any controller (Traefik, HAProxy, Contour, GKE, etc.) by supplying the keys it expects.
+The Default mode is selected with `ingress.mode: default`. The chart adds nothing on top: no annotations, no `ingressClassName`, no `tls` block. You can route through any controller (Traefik, HAProxy, Contour, GKE, etc.) by supplying the keys it expects, for example:
 
 ```yaml
 ingress:
@@ -247,9 +256,9 @@ If you need TLS, you will also need to setup DNS. In AWS, you can create a Route
 
 ## RBAC
 
-The control plane talks to the Kubernetes API in two distinct ways: it **reads** workloads from every namespace so the dashboard can render them, and it **writes** to a short list of namespaces where you actually want it to manage PgDog deployments. The chart's RBAC matches that split. Broad read everywhere, narrow write only where you opt in.
+The control plane talks to the Kubernetes API in two distinct ways: it **reads** workloads from every namespace so the dashboard can render them, and it **writes** to a short list of namespaces where you actually want it to manage PgDog deployments.
 
-When `control.rbac.create` is `true` (the default), the chart renders:
+When `control.rbac.create` is `true` (default), the chart renders:
 
 - A `ServiceAccount` for the control pod. If `control.aws.roleArn` is set, the ServiceAccount also carries the `eks.amazonaws.com/role-arn` annotation, which is what EKS IRSA looks for when handing the pod temporary AWS credentials.
 - A `ClusterRole` and `ClusterRoleBinding` granting **read-only** access cluster-wide. This is enough for the dashboard to list namespaces and read deployments, statefulsets, pods, services, configmaps, and secrets in any namespace. It cannot change anything. Pod logs are included so the deployment log view works.
@@ -266,7 +275,7 @@ control:
       - pgdog-staging
 ```
 
-With the above, the dashboard can see workloads in every namespace, but it can only spin up or tear down PgDog deployments in `pgdog-prod` and `pgdog-staging`. Leaving `writeNamespaces` empty produces a fully read-only install. The dashboard still works, but the "deploy" actions will be rejected by the API server.
+In the above example, the dashboard can see workloads in every namespace, but it can only spin up or tear down PgDog deployments in `pgdog-prod` and `pgdog-staging`. Leaving `writeNamespaces` empty produces a fully read-only install. The dashboard still works, but the "deploy" actions will be rejected by the API server.
 
 | Option | Description |
 |-|-|
@@ -280,11 +289,11 @@ If your cluster manages RBAC out-of-band (a platform team's controller, GitOps, 
 
 ## AWS access (EKS / IRSA)
 
-The control plane reads RDS topology and CloudWatch metrics so the dashboard can show your databases alongside the PgDog workloads. To do that on EKS without baking long-lived keys into the cluster, the recommended path is **IRSA** (IAM Roles for Service Accounts): the pod's ServiceAccount is annotated with an IAM role ARN, the EKS pod-identity webhook injects a projected token, and the AWS SDK inside the container exchanges that token for temporary credentials via STS.
+The control plane reads RDS topology and CloudWatch metrics so the dashboard can show your databases alongside the PgDog workloads. To do that in EKS without baking long-lived keys into the cluster, the recommended path is **IRSA** (IAM Roles for Service Accounts).
 
 This needs three things, only one of which is in the chart:
 
-1. **An OIDC provider for the cluster, registered in IAM.** This is a one-time per-cluster setup (`eksctl utils associate-iam-oidc-provider --cluster <name> --approve`, or the equivalent Terraform / console steps). Without it, STS has nothing to validate the projected token against.
+1. **An OIDC provider for the cluster, registered in IAM.** This is a one-time per-cluster setup (`eksctl utils associate-iam-oidc-provider --cluster <name> --approve`, or the equivalent Terraform / console steps).
 2. **An IAM role** whose trust policy lets the pod's ServiceAccount assume it, with a permissions policy granting read access to RDS and CloudWatch. Details below.
 3. **`control.aws.roleArn`** set to that role's ARN. The chart annotates the ServiceAccount with `eks.amazonaws.com/role-arn: <roleArn>`, and the rest happens automatically inside the pod.
 
@@ -328,9 +337,9 @@ The `:sub` condition is what keeps any other pod in the cluster from assuming th
 Rather than hand-edit the JSON, you can derive every field from the live cluster with `aws` and `kubectl`. Set the four inputs at the top, then pipe the output straight into `aws iam create-role` or save it to a file:
 
 ```sh
-CLUSTER=pgdog-prod
+CLUSTER=eks-prod
 REGION=us-west-2
-NAMESPACE=control-staging
+NAMESPACE=pgdog
 RELEASE=pgdog-control
 
 OIDC_HOST=$(aws eks describe-cluster --name "$CLUSTER" --region "$REGION" \
@@ -443,13 +452,13 @@ control:
 
 ## Configuration
 
-The control plane reads its runtime configuration from a TOML file at `/etc/pgdog-control/control.toml`. The chart materializes that file from `control.config` in `values.yaml`. Every nested key under `control.config` becomes a TOML table, and field names map straight through. Every section and every field is optional; anything you omit falls back to a hardcoded default baked into the binary, so a minimal install only sets the handful of values that need to be non-default.
+The control plane reads its runtime configuration from a TOML file at `/etc/pgdog-control/control.toml`. The chart materializes that file from `control.config` in `values.yaml`. Every nested key under `control.config` becomes a TOML table, and field names map straight through. Every section and every field is optional; anything you omit falls back to a hardcoded default, so a minimal install only sets the handful of values.
 
-Each subsection below covers one TOML section. The source of truth for the defaults lives in `control2/src/config.rs`.
+Each subsection below covers one TOML section.
 
 ### Authentication
 
-`control.config.auth` wires up the OAuth-backed login flow for the dashboard. GitHub and Google are supported and can be enabled side by side. At least one needs to be configured before anyone outside the cluster can log in.
+`control.config.auth` wires up the OAuth-backed login flow for the dashboard. GitHub and Google are supported and can be enabled side by side. At least one needs to be configured, or the dashboard will be **accessible by anyone with the URL**:
 
 ```yaml
 control:
@@ -482,7 +491,7 @@ control:
 
 ### Helm
 
-When the dashboard provisions a new PgDog cluster, it shells out to `helm upgrade --install` against a chart fetched from a Helm repo. `control.config.helm` controls which chart and which repo. The defaults point at the public `pgdogdev` chart on `helm.pgdog.dev`, which is what you want unless you mirror the chart internally.
+When the dashboard provisions a new PgDog cluster, it shells out to `helm upgrade --install` against a chart fetched from our Helm repository. `control.config.helm` controls which chart and which reposiory. The defaults point at the public `pgdogdev` chart on `helm.pgdog.dev`, which is what you want unless you mirror the chart internally.
 
 ```yaml
 control:
@@ -567,15 +576,13 @@ control:
 
 ## Examples
 
-Two end-to-end `values.yaml` files for the most common setups. Save the snippet to `values.yaml` and install with:
-
 ```sh
 helm install control pgdogdev-ee/pgdog-control -f values.yaml
 ```
 
 ### EKS with the AWS Load Balancer Controller
 
-This example deploys to an EKS cluster that already has the AWS Load Balancer Controller and cert-manager-via-ACM set up. AWS credentials come from IRSA, so no static keys live in the cluster. TLS terminates at the ALB using a pre-issued ACM certificate.
+This example deploys into an EKS cluster that already has the AWS Load Balancer Controller, and TLS certificate set up via ACM. AWS credentials come from IRSA.
 
 ```yaml
 control:
@@ -609,9 +616,7 @@ ingress:
     sslRedirect: true
 ```
 
-DNS comes *after* the install: the ALB only exists once the AWS Load Balancer Controller has reconciled the Ingress. After `helm install`, wait for the Ingress's `ADDRESS` to populate (`kubectl get ingress control-control -w`), then create a Route53 `A`/`ALIAS` record for `control.acme.com` pointing at that ALB hostname. The ACM cert referenced by `certificateArn` is issued out-of-band (typically with DNS-01 against the same zone) and can be created before the install. Only the record that fronts the dashboard is order-dependent.
-
-### Vanilla Kubernetes with ingress-nginx and cert-manager
+### Generic Kubernetes with ingress-nginx and cert-manager
 
 This example targets a generic cluster (kubeadm, on-prem, or any managed Kubernetes) with [ingress-nginx](https://kubernetes.github.io/ingress-nginx/) handling traffic and [cert-manager](https://cert-manager.io/) issuing Let's Encrypt certificates.
 
@@ -640,5 +645,3 @@ ingress:
     clusterIssuer: letsencrypt-prod
     sslRedirect: "true"
 ```
-
-Before installing, create a DNS record for `control.acme.com` pointing at the LoadBalancer Service that fronts ingress-nginx. cert-manager solves the HTTP-01 challenge through the same Ingress once it's reachable, so the DNS record needs to be live before the first `helm install` (or the certificate stays pending until it is).
