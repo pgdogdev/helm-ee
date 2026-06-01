@@ -2,9 +2,8 @@
 #
 # install.sh — interactive installer for the PgDog EE Control Plane.
 #
-# This script inspects the target environment, shows the commands it is about
-# to run, then asks you to type "confirm" before each mutating action unless
-# --yes is passed:
+# This script checks the target environment, prints each command before it
+# runs, and asks for "confirm" before changes unless --yes is passed:
 #   1. verify local CLI tools
 #   2. scan the cluster for ingress controllers, propose an ingress mode,
 #      then check the remaining per-mode deps
@@ -16,8 +15,8 @@
 #   6. list Route53 hosted zones and create the DNS record pointing the
 #      hostname at the load balancer when the target is known
 #
-# Every mutating action is shown before execution. Interactive runs require an
-# exact "confirm" response; --yes runs the generated commands automatically.
+# Interactive runs require an exact "confirm" response. --yes runs commands
+# without prompting.
 #
 set -euo pipefail
 
@@ -118,7 +117,7 @@ ok()   { clear_loading; printf "  ${GREEN}${CHECK}${RESET} %s\n" "$1"; }
 warn() { clear_loading; printf "  ${YELLOW}${WARN_SYM}${RESET} %s\n" "$1"; }
 die()  { clear_loading; printf "\n${RED}${BOLD}Aborting:${RESET} %s\n" "$1" >&2; exit 1; }
 
-# snippet <multi-line-string> — render a copy-paste command/manifest block
+# snippet <multi-line-string> — render a command or manifest block
 snippet() {
   printf "\n"
   while IFS= read -r _l; do
@@ -127,27 +126,47 @@ snippet() {
   printf "\n"
 }
 
-confirm_command() {
-  local label=$1 cmd=$2 r
-  snippet "$cmd"
+confirm_prompt() {
+  local prompt=$1 r
   if (( ASSUME_YES )); then
-    ok "Auto-confirmed: $label"
-  else
-    while true; do
-      printf "  ${YELLOW}?${RESET} Type ${BOLD}confirm${RESET} to run %s: " "$label"
-      read -r r
-      [[ "$r" == "confirm" ]] && break
-      warn "Type confirm to continue."
-    done
+    ok "Confirmed: $prompt"
+    return 0
   fi
+  while true; do
+    printf "  ${YELLOW}?${RESET} Type ${BOLD}confirm${RESET} %s: " "$prompt"
+    read -r r
+    [[ "$r" == "confirm" ]] && return 0
+    warn "Type confirm to continue."
+  done
 }
 
-confirm_and_run() {
+confirm_command() {
+  local label=$1 cmd=$2
+  snippet "$cmd"
+  confirm_prompt "to run $label"
+}
+
+confirm_done() {
+  local label=$1
+  confirm_prompt "when $label"
+}
+
+run_confirmed() {
   local label=$1 cmd=$2
   confirm_command "$label" "$cmd"
-  info "Running: $label"
+  info "Running $label."
   bash -euo pipefail -c "$cmd"
-  ok "Completed: $label"
+  ok "Completed $label."
+}
+
+show_or_run() {
+  local label=$1 cmd=$2
+  if command_has_placeholder "$cmd"; then
+    warn "$label has placeholders; not running it."
+    snippet "$cmd"
+    return 0
+  fi
+  run_confirmed "$label" "$cmd"
 }
 
 # row <ok|bad|warn> <name> <detail>
@@ -183,22 +202,12 @@ ask_yn() { # ask_yn "prompt" -> 0 yes / 1 no
   done
 }
 
-confirm_done() {
-  local label=$1 r
-  if (( ASSUME_YES )); then
-    ok "Auto-confirmed: $label"
-    return 0
-  fi
-  while true; do
-    printf "  ${YELLOW}?${RESET} Type ${BOLD}confirm${RESET} once %s: " "$label"
-    read -r r
-    [[ "$r" == "confirm" ]] && return 0
-    warn "Type confirm to continue."
-  done
-}
-
 valid_namespace() {
   [[ ${#1} -le 63 && "$1" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]]
+}
+
+command_has_placeholder() {
+  [[ "$1" == *"<"*">"* || "$1" == *"CLUSTER_NAME"* || "$1" == *"AWS_REGION"* || "$1" == *"ACCOUNT_ID"* || "$1" == *"VPC_ID"* || "$1" == *"HOSTED_ZONE_ID"* ]]
 }
 
 valid_nonempty() {
@@ -321,7 +330,7 @@ choose_mode() {
 
 # ───────────────────────── namespace selection ─────────────────────────
 # Asks which namespace the control chart should be installed into. This
-# namespace is also used for generated ServiceAccount trust in IRSA.
+# namespace is also used for ServiceAccount trust in IRSA.
 prompt_namespace() {
   if (( NAMESPACE_FROM_FLAG )); then
     ok "Namespace: ${BOLD}${NAMESPACE}${RESET} ${DIM}(from --namespace)${RESET}"
@@ -379,7 +388,7 @@ prompt_dns_provider() {
   fi
 
   printf "    ${BOLD}1)${RESET} Route53   ${DIM}create the DNS record with AWS Route53${RESET}\n"
-  printf "    ${BOLD}2)${RESET} Manual    ${DIM}show the record for you to create yourself${RESET}\n"
+  printf "    ${BOLD}2)${RESET} Manual    ${DIM}print DNS record values${RESET}\n"
   prompt_until "Choose DNS setup" 1 valid_dns_provider_choice "Enter 1 (Route53) or 2 (Manual)."
   case "$PROMPT_VALUE" in
     1|route53) DNS_PROVIDER="route53" ;;
@@ -425,16 +434,16 @@ prompt_host() {
 # opens the creation page, then captures the Client ID / secret. The values
 # are emitted into the install config by advise_install.
 setup_github_oauth() {
-  heading "GitHub OAuth login  ${DIM}(optional)${RESET}"
+  heading "GitHub OAuth login"
   if (( ASSUME_YES )) || [[ -z "$HOST" ]]; then
-    info "Skipped — needs an interactive session and a hostname."
+    info "Skipping GitHub OAuth setup: interactive session and hostname required."
     return 0
   fi
   if ! ask_yn "Configure GitHub OAuth login now?"; then
-    info "Skipped GitHub OAuth setup."
+    warn "GitHub OAuth is not configured. The control plane will be accessible to anyone who can reach it."
     return 0
   fi
-  have gh || warn "gh CLI not found — continuing with manual steps."
+  have gh || warn "gh CLI not found — using manual GitHub setup."
 
   local base="https://$HOST"
   local callback="$base/github/oauth/callback"
@@ -470,7 +479,7 @@ Authorization callback URL: ${callback}"
   prompt_until "Client secret" "" valid_nonempty "Client secret is required."
   GH_CLIENT_SECRET="$PROMPT_VALUE"
   [[ -n "$org" ]] && GH_ALLOWED_ORGS="$org"
-  ok "GitHub OAuth captured — config will be shown with the install step."
+  ok "GitHub OAuth values set."
 }
 
 # ───────────────────────────── AWS ACM TLS ─────────────────────────────
@@ -481,11 +490,11 @@ setup_aws_acm_tls() {
     return 0
   fi
   if (( ASSUME_YES )); then
-    info "Skipped ACM TLS setup — pass --acm-cert-arn to configure HTTPS non-interactively."
+    info "Skipping ACM TLS setup: pass --acm-cert-arn for non-interactive HTTPS."
     return 0
   fi
   if [[ -z "$HOST" ]]; then
-    warn "Skipped ACM TLS setup — ingress.host is required to find or request a certificate."
+    warn "Skipping ACM TLS setup: ingress.host is required to find or request a certificate."
     return 0
   fi
   if ! have aws; then
@@ -495,7 +504,7 @@ setup_aws_acm_tls() {
 
   heading "AWS ALB TLS  ${DIM}(ACM certificate)${RESET}"
   if ! ask_yn "Configure HTTPS for the ALB with an ACM certificate?"; then
-    info "Skipped ACM TLS setup — ALB will be HTTP-only unless your values file sets ingress.aws.certificateArn."
+    info "Skipping ACM TLS setup. The ALB will use HTTP unless values set ingress.aws.certificateArn."
     return 0
   fi
   if ! valid_acm_domain "$HOST"; then
@@ -541,13 +550,13 @@ setup_aws_acm_tls() {
 --output text"
   info "Request a DNS-validated ACM certificate:"
   if [[ "$region" == "AWS_REGION" ]]; then
-    warn "ACM certificate request still has placeholders; not running it."
+    warn "ACM certificate request has placeholders; not running it."
     snippet "$request_cmd"
     die "ACM certificate ARN is required for AWS ALB HTTPS — request/validate a cert, then re-run this installer."
   fi
 
   confirm_command "ACM certificate request" "$request_cmd"
-  info "Running: ACM certificate request"
+  info "Running ACM certificate request."
   AWS_CERT_ARN=$(aws acm request-certificate \
     --region "$region" \
     --domain-name "$HOST" \
@@ -605,11 +614,11 @@ aws acm wait certificate-validated \\
 --certificate-arn \"$AWS_CERT_ARN\""
   info "Create the ACM DNS validation record and wait for issuance:"
   if [[ "$zone" == "HOSTED_ZONE_ID" ]]; then
-    warn "ACM DNS validation command still has placeholders; not running it."
+    warn "ACM DNS validation command has placeholders; not running it."
     snippet "$validation_cmd"
     die "ACM certificate DNS validation needs a hosted zone — validate $AWS_CERT_ARN, then re-run with --acm-cert-arn."
   else
-    confirm_and_run "ACM DNS validation record creation" "$validation_cmd"
+    run_confirmed "ACM DNS validation record creation" "$validation_cmd"
   fi
   ok "ACM certificate: ${BOLD}${AWS_CERT_ARN}${RESET}"
 }
@@ -622,14 +631,21 @@ detect_aws_alb_subnets() {
   [[ -n "$AWS_CLUSTER" && -n "$AWS_REGION" ]] || return 0
 
   loading "ALB subnets"
-  AWS_ALB_SUBNETS=$(aws eks describe-cluster \
-    --name "$AWS_CLUSTER" \
-    --region "$AWS_REGION" \
+  AWS_ALB_SUBNETS=$(get_eks_subnets "$AWS_CLUSTER" "$AWS_REGION" || true)
+  clear_loading
+  [[ -n "$AWS_ALB_SUBNETS" ]] && ok "ALB subnets: ${BOLD}${AWS_ALB_SUBNETS}${RESET}"
+}
+
+get_eks_subnets() {
+  local cluster=$1 region=$2 subnets
+  have aws || return 1
+  subnets=$(aws eks describe-cluster \
+    --name "$cluster" \
+    --region "$region" \
     --query 'join(`,`, cluster.resourcesVpcConfig.subnetIds)' \
     --output text 2>/dev/null || true)
-  clear_loading
-  [[ "$AWS_ALB_SUBNETS" == "None" ]] && AWS_ALB_SUBNETS=""
-  [[ -n "$AWS_ALB_SUBNETS" ]] && ok "ALB subnets: ${BOLD}${AWS_ALB_SUBNETS}${RESET}"
+  [[ "$subnets" == "None" || -z "$subnets" ]] && return 1
+  printf '%s' "$subnets"
 }
 
 # ──────────────────────────── AWS / IRSA setup ─────────────────────────
@@ -724,20 +740,20 @@ setup_aws_access() {
   fi
 
   if (( ASSUME_YES && CONFIGURE_AWS == 0 )); then
-    info "Skipped — pass --aws-role-arn for an existing role or --aws-role-name with --aws-cluster/--aws-region to create the IAM role."
+    info "Skipping IAM role setup: pass --aws-role-arn, or pass --aws-role-name with --aws-cluster/--aws-region."
     return 0
   fi
   if ! have aws; then
     if (( CONFIGURE_AWS )); then
       warn "AWS CLI is missing — OIDC checks are skipped and IAM commands will use placeholders."
     else
-      info "Skipped — AWS CLI is required to inspect EKS OIDC and create the IAM role."
+      info "Skipping IAM role setup: AWS CLI is required."
       return 0
     fi
   fi
   if (( CONFIGURE_AWS == 0 )); then
     if ! ask_yn "Configure an IAM role so PgDog can read RDS and CloudWatch?"; then
-      info "Skipped AWS access setup."
+      info "Skipping AWS access setup."
       return 0
     fi
     CONFIGURE_AWS=1
@@ -807,7 +823,7 @@ check_local_deps() {
 
 # ─────────────────────────── step 2: cluster check ─────────────────────
 # Scans the cluster for ingress controllers (read-only) so choose_mode can
-# propose a sensible default. Sets HAVE_NGINX / HAVE_ALB.
+# choose a default. Sets HAVE_NGINX / HAVE_ALB.
 scan_controllers() {
   HAVE_NGINX=0; HAVE_ALB=0
   if (( ! CLUSTER_OK )); then
@@ -917,7 +933,7 @@ aws eks update-kubeconfig --name <CLUSTER> --region <REGION>"
       fi
       if (( MISSING_NGINX || MISSING_CERTMGR || MISSING_ISSUER )); then
         advise_prereqs
-        die "nginx prerequisites were missing — finish any pending setup, then re-run this installer."
+        die "nginx prerequisites were missing — complete the setup above, then re-run this installer."
       fi
       ;;
     aws)
@@ -960,14 +976,14 @@ check_clusterissuer() {
   fi
 }
 
-# ──────────────────── step 3: prerequisite advice ──────────────────────
+# ─────────────────────── step 3: prerequisites ─────────────────────────
 advise_ingress_nginx() {
   info "Install ingress-nginx:"
   derive_eks_from_context || true
   local cluster="${AWS_CLUSTER:-CLUSTER_NAME}"
   local region="${AWS_REGION:-AWS_REGION}"
   if [[ "$cluster" == "CLUSTER_NAME" || "$region" == "AWS_REGION" ]]; then
-    warn "Cluster or region is unknown, so the ingress-nginx install command still has placeholders."
+    warn "Cluster or region is unknown. The ingress-nginx command is incomplete."
     snippet "CLUSTER=$cluster
 REGION=$region
 SUBNETS=\$(aws eks describe-cluster \\
@@ -988,16 +1004,11 @@ kubectl -n ingress-nginx get svc ingress-nginx-controller -w   # note the extern
   local subnets=""
   if have aws; then
     loading "EKS subnets"
-    subnets=$(aws eks describe-cluster \
-      --name "$cluster" \
-      --region "$region" \
-      --query 'join(`,`, cluster.resourcesVpcConfig.subnetIds)' \
-      --output text 2>/dev/null || true)
+    subnets=$(get_eks_subnets "$cluster" "$region" || true)
     clear_loading
-    [[ "$subnets" == "None" ]] && subnets=""
   fi
   if [[ -z "$subnets" ]]; then
-    warn "Could not resolve EKS subnets, so the ingress-nginx install command still has placeholders."
+    warn "Could not resolve EKS subnets. The ingress-nginx command is incomplete."
     snippet "helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
 helm repo update
 helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \\
@@ -1007,7 +1018,7 @@ helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \\
     return 0
   fi
   ok "EKS subnets: ${BOLD}${subnets}${RESET}"
-  confirm_and_run "ingress-nginx installation" "helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+  run_confirmed "ingress-nginx installation" "helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
 helm repo update
 helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \\
 --namespace ingress-nginx --create-namespace \\
@@ -1129,12 +1140,7 @@ helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-contro
 --set serviceAccount.name=aws-load-balancer-controller
 
 kubectl -n kube-system rollout status deployment/aws-load-balancer-controller"
-  if [[ "$cluster" == "CLUSTER_NAME" || "$region" == "AWS_REGION" || "$account_id" == "ACCOUNT_ID" || "$vpc_id" == "VPC_ID" ]]; then
-    warn "AWS Load Balancer Controller command still has placeholders; not running it."
-    snippet "$controller_cmd"
-    return 0
-  fi
-  confirm_and_run "AWS Load Balancer Controller installation" "$controller_cmd"
+  show_or_run "AWS Load Balancer Controller installation" "$controller_cmd"
 }
 
 choose_controller_to_install() {
@@ -1168,53 +1174,45 @@ choose_controller_to_install() {
 
 advise_cert_manager() {
   info "Install cert-manager:"
-  confirm_and_run "cert-manager installation" "helm repo add jetstack https://charts.jetstack.io
+  run_confirmed "cert-manager installation" "helm repo add jetstack https://charts.jetstack.io
 helm repo update
 helm upgrade --install cert-manager jetstack/cert-manager \\
 --namespace cert-manager --create-namespace \\
 --set crds.enabled=true"
 }
 
+clusterissuer_cmd() {
+  local email=$1
+  printf '%s\n' \
+    "kubectl apply -f - <<'EOF'" \
+    "apiVersion: cert-manager.io/v1" \
+    "kind: ClusterIssuer" \
+    "metadata:" \
+    "  name: letsencrypt-prod" \
+    "spec:" \
+    "  acme:" \
+    "    server: https://acme-v02.api.letsencrypt.org/directory" \
+    "    email: ${email}" \
+    "    privateKeySecretRef:" \
+    "      name: letsencrypt-prod-account-key" \
+    "    solvers:" \
+    "      - http01:" \
+    "          ingress:" \
+    "            ingressClassName: nginx" \
+    "EOF"
+}
+
 advise_clusterissuer() {
-  local email="${ACME_EMAIL:-your-email@example.com}"
+  local email="${ACME_EMAIL:-your-email@example.com}" issuer_cmd
+  issuer_cmd=$(clusterissuer_cmd "$email")
   if [[ -z "$ACME_EMAIL" ]]; then
     warn "No ACME email was provided; pass --email before creating the ClusterIssuer."
     info "ClusterIssuer command:"
-    snippet "kubectl apply -f - <<'EOF'
-apiVersion: cert-manager.io/v1
-kind: ClusterIssuer
-metadata:
-  name: letsencrypt-prod
-spec:
-  acme:
-    server: https://acme-v02.api.letsencrypt.org/directory
-    email: ${email}
-    privateKeySecretRef:
-      name: letsencrypt-prod-account-key
-    solvers:
-      - http01:
-          ingress:
-            ingressClassName: nginx
-EOF"
+    snippet "$issuer_cmd"
     return 0
   fi
   info "Create a Let's Encrypt ClusterIssuer:"
-  confirm_and_run "Let's Encrypt ClusterIssuer creation" "kubectl apply -f - <<'EOF'
-apiVersion: cert-manager.io/v1
-kind: ClusterIssuer
-metadata:
-  name: letsencrypt-prod
-spec:
-  acme:
-    server: https://acme-v02.api.letsencrypt.org/directory
-    email: ${email}
-    privateKeySecretRef:
-      name: letsencrypt-prod-account-key
-    solvers:
-      - http01:
-          ingress:
-            ingressClassName: nginx
-EOF"
+  run_confirmed "Let's Encrypt ClusterIssuer creation" "$issuer_cmd"
 }
 
 advise_prereqs() {
@@ -1320,17 +1318,16 @@ aws iam put-role-policy \\
 --policy-name PgDogControlReadRdsAndCloudWatch \\
 --policy-document file://pgdog-control-aws-policy.json"
   if [[ "$account" == "ACCOUNT_ID" || "$oidc" == "OIDC_HOST" ]]; then
-    warn "IAM role command still has placeholders; not running it."
-    snippet "$iam_cmd"
+    show_or_run "IAM role creation" "$iam_cmd"
     return 0
   fi
   info "Create the IAM trust policy, permissions policy, role, and inline policy:"
-  confirm_and_run "IAM role creation" "$iam_cmd"
+  run_confirmed "IAM role creation" "$iam_cmd"
 
   AWS_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID:-ACCOUNT_ID}:role/${role}"
 }
 
-# ────────────────────────── step 4: install advice ─────────────────────
+# ───────────────────────────── step 4: install ─────────────────────────
 advise_install() {
   heading "Install the PgDog control plane"
   detect_aws_alb_subnets
@@ -1377,7 +1374,7 @@ advise_install() {
   install_cmd="$install_cmd \\
 --set-string 'control.rbac.writeNamespaces[0]=$NAMESPACE'"
   info "Add the chart repo, then install the release:"
-  confirm_and_run "PgDog control plane installation" "helm repo add $REPO_NAME $REPO_URL
+  run_confirmed "PgDog control plane installation" "helm repo add $REPO_NAME $REPO_URL
 helm repo update
 $install_cmd"
   if [[ -n "$GH_CLIENT_ID" ]]; then
@@ -1393,7 +1390,7 @@ $install_cmd"
   fi
 }
 
-# ───────────────────────────── step 5: dns advice ──────────────────────
+# ─────────────────────────────── step 5: DNS ───────────────────────────
 # Read the public address traffic should point at: the ingress-nginx
 # LoadBalancer (nginx mode) or the ALB fronting the chart's Ingress (aws).
 detect_target() {
@@ -1523,12 +1520,11 @@ TTL: 300"
 aws route53 wait resource-record-sets-changed --id \"\$CHANGE_ID\"
 echo \"\$CHANGE_ID\""
   if [[ "$zone" == "<HOSTED_ZONE_ID>" || "$target" == "<LB_ADDRESS>" ]]; then
-    warn "DNS command still has placeholders; not running it."
-    snippet "$dns_cmd"
+    show_or_run "Route53 DNS record creation" "$dns_cmd"
     return 0
   fi
   info "Creating the Route53 record and waiting for propagation:"
-  confirm_and_run "Route53 DNS record creation" "$dns_cmd"
+  run_confirmed "Route53 DNS record creation" "$dns_cmd"
 }
 
 # ──────────────────────────── args / main ──────────────────────────────
@@ -1543,7 +1539,7 @@ Usage: $0 [options]
                                                     (prompted if omitted)
       --host HOST       External hostname (ingress.host)
   -f, --values FILE     values.yaml referenced in the helm install command
-      --email EMAIL     ACME email shown in the ClusterIssuer manifest
+      --email EMAIL     ACME email used in the ClusterIssuer manifest
       --aws-cluster NAME
                        EKS cluster name for OIDC / IRSA checks
       --aws-region REGION
@@ -1557,11 +1553,10 @@ Usage: $0 [options]
   -y, --yes             Non-interactive: assume defaults and run commands
   -h, --help            Show this help
 
-This tool inspects your machine and cluster, shows each mutating helm /
-kubectl / aws command block, and runs it after you type "confirm".
-With --yes, generated command blocks run automatically.
-The DNS step may list Route53 hosted zones to put a real zone id into the
-Route53 change.
+The installer checks local tools and the cluster, shows each helm / kubectl /
+aws command before it runs, and waits for "confirm" in interactive mode.
+With --yes, commands run without prompting. DNS can be managed with Route53
+or configured manually.
 
 Testing: set FAKE_MISSING="aws jq" to force those tools to report as
 missing without changing your PATH (see test/ for a full harness).
