@@ -7,16 +7,21 @@ Production-ready [Helm](https://helm.sh) chart for the PgDog Enterprise
 
 ### Guided installation
 
-The fastest way to install is the guided installer script. It uses the AWS and Kube CLI to
-inspect your cluster and can execute all the necessary commands to install this chart:
+This chart has a few dependencies, like having a valid `Ingress` controller and an IAM role
+to allow the web dashboard read-only access to RDS and CloudWatch.
+
+To quickly check that your EKS cluster has everything, you can run this Bash script:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/pgdogdev/helm-ee/main/install.sh | bash
 ```
 
+It's strictly read-only and will print out warnings or errors. It can also help generate a valid
+IAM role with a Trust Policy.
+
 ### Manual install
 
-Install the chart manually with Helm (read below for configuration options):
+Install the chart with Helm (read below for configuration options):
 
 ```sh
 helm repo add pgdogdev-ee https://helm-ee.pgdog.dev
@@ -25,9 +30,9 @@ helm install control pgdogdev-ee/pgdog-control
 
 The three somewhat complex steps are:
 
-1. Configuring AWS RDS/CloudWatch permissions
-2. Setting up an Ingress with TLS termination
-3. Configuring OAuth for the control plane dashboard
+1. Configuring AWS RDS/CloudWatch permissions (IAM)
+2. Setting up an Ingress with TLS termination (nginx, ALB and Gateway API supported)
+3. Configuring OAuth for the control plane dashboard (GitHub and Google auth supported)
 
 ## Chart summary
 
