@@ -200,7 +200,7 @@ check_hostname_dns() {
   elif [[ -n "$VALUES_FILE" ]]; then
     row warn "hostname DNS" "not checked; pass --host to verify DNS"
   else
-    if ensure_stdin_tty; then
+    if can_prompt; then
       prompt_until "External hostname" "" valid_acm_domain "Enter a valid DNS name, e.g. control.example.com."
       HOST="$PROMPT_VALUE"
       check_hostname_dns
@@ -236,7 +236,7 @@ prompt_until() {
     else
       printf "  ${YELLOW}?${RESET} %s: " "$prompt"
     fi
-    read -r value
+    prompt_read value
     value=${value:-$default}
     if [[ -z "$validator" ]] || "$validator" "$value"; then
       PROMPT_VALUE="$value"
@@ -246,15 +246,21 @@ prompt_until() {
   done
 }
 
-ensure_stdin_tty() {
+can_prompt() {
   if [[ -t 0 ]]; then
     return 0
   fi
-  if (exec </dev/tty) 2>/dev/null; then
-    exec </dev/tty
-    return 0
+  (: </dev/tty) 2>/dev/null
+}
+
+prompt_read() {
+  local __var=$1 __value
+  if [[ -t 0 ]]; then
+    read -r __value || return 1
+  else
+    read -r __value </dev/tty || return 1
   fi
-  return 1
+  printf -v "$__var" '%s' "$__value"
 }
 
 # ---------------------------------------------------------------------------
@@ -436,14 +442,10 @@ choose_mode() {
   local default choice
   default="nginx"
 
-  if [[ ! -t 0 ]]; then
-    if (exec </dev/tty) 2>/dev/null; then
-      exec </dev/tty
-    else
-      heading "Configuration"
-      row fail "mode" "missing --mode and no terminal is available to ask"
-      return 0
-    fi
+  if ! can_prompt; then
+    heading "Configuration"
+    row fail "mode" "missing --mode and no terminal is available to ask"
+    return 0
   fi
 
   heading "Configuration"
@@ -454,7 +456,7 @@ choose_mode() {
 
   while true; do
     printf "  ${YELLOW}?${RESET} Mode [1/2/3]: "
-    read -r choice
+    prompt_read choice
     choice=${choice:-$default}
     case "$choice" in
       1|nginx) MODE="nginx"; return 0 ;;
@@ -508,7 +510,7 @@ ensure_iam_generation_context() {
   if [[ -n "$AWS_ACCOUNT_ID" && -n "$OIDC_HOST" && "$AWS_ACCOUNT_ID" != "None" && "$OIDC_HOST" != "None" ]]; then
     return 0
   fi
-  if ensure_stdin_tty; then
+  if can_prompt; then
     [[ -n "$AWS_ACCOUNT_ID" && "$AWS_ACCOUNT_ID" != "None" ]] || {
       prompt_until "AWS account ID" "" valid_nonempty "AWS account ID is required."
       AWS_ACCOUNT_ID="$PROMPT_VALUE"
@@ -680,7 +682,7 @@ action_allowed() {
 }
 
 prompt_iam_inputs() {
-  if ! ensure_stdin_tty; then
+  if ! can_prompt; then
     if [[ "$IAM_MODE" == "generate" ]]; then
       return 0
     fi
@@ -696,7 +698,7 @@ prompt_iam_inputs() {
     printf "    ${BOLD}2${RESET}  generate   ${DIM}print trust and permissions JSON${RESET}\n"
     while true; do
       printf "  ${YELLOW}?${RESET} IAM mode [1/2]: "
-      read -r choice
+      prompt_read choice
       choice=${choice:-check}
       case "$choice" in
         1|check) IAM_MODE="check"; break ;;
