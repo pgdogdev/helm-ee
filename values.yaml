@@ -86,9 +86,11 @@ control:
       # stale_after_secs: 5
       # evict_after_secs: 60
       # metrics_retention_secs: 300
+      # query_history_limit: 1000
     helm: {}
       # chart: pgdog
       # repo: pgdogdev
+      # repo_url: https://helm.pgdog.dev
     auth: {}
       # cookie_secret: ""               # optional; random key generated at boot when absent
       # redirect_base_url: ""           # e.g. https://control.example.com
@@ -103,6 +105,15 @@ control:
       #   client_id: ""
       #   client_secret: ""
       #   allowed_domains: []
+    alerts: {}
+      # evaluation_window_secs: 300
+      # thresholds:
+      #   clients_waiting: 10
+      #   cpu: 90.0
+      #   memory: 2048
+      #   server_connections: 100
+      # incident_io:
+      #   api_key: ""
     redis: {}
       # url: ""                          # optional; defaults to in-cluster redis
       # save_interval_secs: 60

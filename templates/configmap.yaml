@@ -70,6 +70,9 @@ data:
     {{- with .metrics_retention_secs }}
     metrics_retention_secs = {{ . }}
     {{- end }}
+    {{- if hasKey . "query_history_limit" }}
+    query_history_limit = {{ .query_history_limit }}
+    {{- end }}
     {{- end }}
 
     {{- with $config.helm }}
@@ -80,6 +83,9 @@ data:
     {{- end }}
     {{- with .repo }}
     repo = {{ . | quote }}
+    {{- end }}
+    {{- with .repo_url }}
+    repo_url = {{ . | quote }}
     {{- end }}
     {{- end }}
 
@@ -125,6 +131,37 @@ data:
     {{- end }}
     {{- with .allowed_domains }}
     allowed_domains = [{{ range $i, $d := . }}{{ if $i }}, {{ end }}{{ $d | quote }}{{ end }}]
+    {{- end }}
+    {{- end }}
+    {{- end }}
+
+    {{- with $config.alerts }}
+
+    [alerts]
+    {{- if hasKey . "evaluation_window_secs" }}
+    evaluation_window_secs = {{ .evaluation_window_secs }}
+    {{- end }}
+    {{- with .thresholds }}
+
+    [alerts.thresholds]
+    {{- if hasKey . "clients_waiting" }}
+    clients_waiting = {{ .clients_waiting }}
+    {{- end }}
+    {{- if hasKey . "cpu" }}
+    cpu = {{ .cpu }}
+    {{- end }}
+    {{- if hasKey . "memory" }}
+    memory = {{ .memory }}
+    {{- end }}
+    {{- if hasKey . "server_connections" }}
+    server_connections = {{ .server_connections }}
+    {{- end }}
+    {{- end }}
+    {{- with .incident_io }}
+
+    [alerts.incident_io]
+    {{- if hasKey . "api_key" }}
+    api_key = {{ .api_key | quote }}
     {{- end }}
     {{- end }}
     {{- end }}

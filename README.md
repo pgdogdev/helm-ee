@@ -496,7 +496,7 @@ control:
 
 ### Helm
 
-When the dashboard provisions a new PgDog cluster, it shells out to `helm upgrade --install` against a chart fetched from our Helm repository. `control.config.helm` controls which chart and which reposiory. The defaults point at the public `pgdogdev` chart on `helm.pgdog.dev`, which is what you want unless you mirror the chart internally.
+When the dashboard provisions a new PgDog cluster, it shells out to `helm upgrade --install` against a chart fetched from our Helm repository. `control.config.helm` controls which chart and which repository. The defaults point at the public `pgdogdev` chart on `helm.pgdog.dev`, which is what you want unless you mirror the chart internally.
 
 ```yaml
 control:
@@ -541,6 +541,33 @@ control:
 | `cloudwatch.lookback_secs` | How far back each fetch reaches. A fresh deploy pulls the full window on its first tick (int, default `3600`). |
 | `cloudwatch.period_secs` | CloudWatch aggregation period. The smallest bucket the metric API returns (int, default `60`). |
 
+### Alerting
+
+`control.config.alerts` enables outbound alert integrations. Leave `incident_io` unset to disable incident.io. Thresholds are optional and only configured metrics create alerts.
+
+```yaml
+control:
+  config:
+    alerts:
+      evaluation_window_secs: 300
+      thresholds:
+        clients_waiting: 10
+        cpu: 90.0
+        memory: 2048
+        server_connections: 100
+      incident_io:
+        api_key: inc_live_xxx
+```
+
+| Option | Description |
+|-|-|
+| `evaluation_window_secs` | How long metrics must remain at or above threshold before creating an alert (int, default `300`). |
+| `thresholds.clients_waiting` | Number of clients waiting on a server connection (int, optional). |
+| `thresholds.cpu` | CPU usage percentage. Must be between `0.0` and `100.0`, inclusive (float, optional). |
+| `thresholds.memory` | Memory used, in megabytes (int, optional). |
+| `thresholds.server_connections` | Number of open server connections (int, optional). |
+| `incident_io.api_key` | incident.io API key with permission to create incidents. Missing `incident_io` disables the integration (string, optional). |
+
 ### State store
 
 `control.config.store` governs the in-memory metric store: how often it sweeps for stale data, when an instance is marked stale or evicted, and how long per-instance metric history is retained. The defaults are tight enough for an interactive dashboard; widen them if you keep the UI open against a cluster that's intentionally idle, or if you want a longer historical window in memory.
@@ -553,6 +580,7 @@ control:
       stale_after_secs: 5
       evict_after_secs: 60
       metrics_retention_secs: 300
+      query_history_limit: 1000
 ```
 
 | Option | Description |
@@ -561,6 +589,7 @@ control:
 | `stale_after_secs` | Instance is marked stale if its newest metric is older than this. The UI dims it but keeps it visible (int, default `5`). |
 | `evict_after_secs` | Instance is dropped from the store entirely if its newest metric is older than this (int, default `60`). |
 | `metrics_retention_secs` | How much per-instance metric history is kept in memory. Older points are dropped as new ones arrive (int, default `300`). |
+| `query_history_limit` | Per-token historical query store capacity. Oldest deduped query entries are evicted first once the limit is reached (int, default `1000`). |
 
 ### Redis persistence
 

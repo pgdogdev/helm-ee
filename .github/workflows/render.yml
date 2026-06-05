@@ -1,0 +1,25 @@
+name: Render Helm chart
+
+on:
+  push:
+
+jobs:
+  render:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: latest
+
+      - name: Lint chart
+        run: helm lint .
+
+      - name: Render chart
+        run: helm template control .
