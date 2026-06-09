@@ -81,7 +81,7 @@ spec:
           value: /var/lib/pgdog-control/helm/config
         - name: HELM_DATA_HOME
           value: /var/lib/pgdog-control/helm/data
-        # control2's whoami uses these to look up the Service that fronts
+        # The control plane uses these to look up the Service that fronts
         # this pod (src/models/deployment/kube/whoami.rs); without them
         # endpoint() falls back to the host.minikube.internal dev URL.
         - name: POD_NAME
