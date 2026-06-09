@@ -522,6 +522,8 @@ control:
   config:
     rds:
       refresh_interval_secs: 60
+      # Experimental: do not enable in production yet.
+      autodiscovery: false
     kube:
       refresh_interval_secs: 15
     dns:
@@ -535,6 +537,7 @@ control:
 | Option | Description |
 |-|-|
 | `rds.refresh_interval_secs` | How often to poll AWS RDS for cluster and instance topology (int, default `60`). |
+| `rds.autodiscovery` | **Experimental. Do not enable in production yet.** Automatically reconcile Helm-managed PgDog database entries from discovered RDS topology (bool, default `false`). |
 | `kube.refresh_interval_secs` | How often to poll Kubernetes for PgDog workloads. Independent of the `watch` streams, which fire on events (int, default `15`). |
 | `dns.refresh_interval_secs` | How often to re-resolve every known RDS hostname (int, default `30`). |
 | `cloudwatch.refresh_interval_secs` | How often to poll CloudWatch for per-instance metrics (int, default `60`). |
@@ -581,6 +584,7 @@ control:
       evict_after_secs: 60
       metrics_retention_secs: 300
       query_history_limit: 1000
+      autoreload: false
 ```
 
 | Option | Description |
@@ -590,6 +594,24 @@ control:
 | `evict_after_secs` | Instance is dropped from the store entirely if its newest metric is older than this (int, default `60`). |
 | `metrics_retention_secs` | How much per-instance metric history is kept in memory. Older points are dropped as new ones arrive (int, default `300`). |
 | `query_history_limit` | Per-token historical query store capacity. Oldest deduped query entries are evicted first once the limit is reached (int, default `1000`). |
+| `autoreload` | Automatically enqueue `reload_configuration` for instances that report config drift (bool, default `false`). |
+
+### Slack Notifications
+
+`control.config.slack` enables Slack status updates for long-running deployment and maintenance work. Leave either field empty to disable Slack. If the section is omitted, the control plane falls back to the `SLACK_BOT_TOKEN` and `SLACK_CHANNEL` environment variables.
+
+```yaml
+control:
+  config:
+    slack:
+      bot_token: xoxb-...
+      channel: C0123456789
+```
+
+| Option | Description |
+|-|-|
+| `bot_token` | Slack bot token with `chat:write` permission (string, optional). |
+| `channel` | Slack channel ID or name for status updates (string, optional). |
 
 ### Redis persistence
 

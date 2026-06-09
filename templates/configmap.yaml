@@ -23,6 +23,9 @@ data:
     {{- with .refresh_interval_secs }}
     refresh_interval_secs = {{ . }}
     {{- end }}
+    {{- if hasKey . "autodiscovery" }}
+    autodiscovery = {{ .autodiscovery }}
+    {{- end }}
     {{- end }}
 
     {{- with $config.kube }}
@@ -72,6 +75,9 @@ data:
     {{- end }}
     {{- if hasKey . "query_history_limit" }}
     query_history_limit = {{ .query_history_limit }}
+    {{- end }}
+    {{- if hasKey . "autoreload" }}
+    autoreload = {{ .autoreload }}
     {{- end }}
     {{- end }}
 
@@ -163,6 +169,17 @@ data:
     {{- if hasKey . "api_key" }}
     api_key = {{ .api_key | quote }}
     {{- end }}
+    {{- end }}
+    {{- end }}
+
+    {{- with $config.slack }}
+
+    [slack]
+    {{- if hasKey . "bot_token" }}
+    bot_token = {{ .bot_token | quote }}
+    {{- end }}
+    {{- if hasKey . "channel" }}
+    channel = {{ .channel | quote }}
     {{- end }}
     {{- end }}
 

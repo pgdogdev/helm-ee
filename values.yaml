@@ -37,7 +37,7 @@ control:
     # Override the ServiceAccount name. When empty, falls back to
     # `<release>-control`.
     serviceAccountName: ""
-    # Namespaces where control2 is allowed to create/update/patch/delete
+    # Namespaces where the control plane is allowed to create/update/patch/delete
     # workloads (deployments, statefulsets, configmaps, secrets, services).
     # A Role + RoleBinding is generated in each listed namespace. Empty
     # means no write access anywhere — list the release namespace
@@ -67,12 +67,14 @@ control:
     capabilities:
       drop: ["ALL"]
   # Runtime configuration written to /etc/pgdog-control/control.toml.
-  # Mirrors control2/src/config.rs. Every field is optional — anything left
+  # Mirrors the control plane runtime config. Every field is optional — anything left
   # unset falls back to the Rust-side default. Field names match the TOML
   # keys (snake_case) so values are passed through verbatim.
   config:
     rds: {}
       # refresh_interval_secs: 60
+      # Experimental: do not enable in production yet.
+      # autodiscovery: false
     kube: {}
       # refresh_interval_secs: 15
     dns: {}
@@ -87,6 +89,7 @@ control:
       # evict_after_secs: 60
       # metrics_retention_secs: 300
       # query_history_limit: 1000
+      # autoreload: false
     helm: {}
       # chart: pgdog
       # repo: pgdogdev
@@ -114,6 +117,9 @@ control:
       #   server_connections: 100
       # incident_io:
       #   api_key: ""
+    slack: {}
+      # bot_token: ""                    # optional; defaults to SLACK_BOT_TOKEN env when absent
+      # channel: ""                      # optional; defaults to SLACK_CHANNEL env when absent
     redis: {}
       # url: ""                          # optional; defaults to in-cluster redis
       # save_interval_secs: 60
@@ -163,7 +169,7 @@ ingress:
   #             annotations, ingressClassName, and tls block via the
   #             top-level keys below.
   mode: nginx
-  # host is the external hostname routed to control2. Required when
+  # host is the external hostname routed to the control plane. Required when
   # mode is "nginx" or "aws"; optional in "default" mode (omit to leave
   # the rule unbound to a host).
   # host: control.example.com

@@ -11,7 +11,7 @@ metadata:
     eks.amazonaws.com/role-arn: {{ . | quote }}
   {{- end }}
 ---
-# Cluster-scoped because control2 lists namespaces and reads workloads
+# Cluster-scoped because the control plane lists namespaces and reads workloads
 # across all namespaces (Api::all in src/models/deployment/kube/client.rs).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -20,7 +20,7 @@ metadata:
   labels:
     {{- include "pgdog-control.labels" . | nindent 4 }}
 rules:
-  # control2 lists/reads these cluster-wide (Api::all) to render the
+  # The control plane lists/reads these cluster-wide (Api::all) to render the
   # workload, services, and pod views across every namespace.
   - apiGroups: [""]
     resources: ["namespaces", "configmaps", "secrets", "services"]
@@ -56,7 +56,7 @@ subjects:
     namespace: {{ .Release.Namespace }}
 {{- range $ns := .Values.control.rbac.writeNamespaces }}
 ---
-# Namespace-scoped write access for workloads control2 manages.
+# Namespace-scoped write access for workloads the control plane manages.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
