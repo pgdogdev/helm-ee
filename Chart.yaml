@@ -3,4 +3,4 @@ name: pgdog-control
 description: PgDog Control
 type: application
 version: 0.2.9
-appVersion: "438ab3d1"
+appVersion: "v2026-06-09"
