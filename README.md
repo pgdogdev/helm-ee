@@ -494,6 +494,43 @@ control:
 | `google.client_id` / `google.client_secret` | OAuth credentials from the Google Cloud OAuth client. Required to enable the Google login route. |
 | `google.allowed_domains` | If non-empty, only users whose verified Google email's domain (the part after `@`, compared case-insensitively) appears in this list are allowed to log in (list of strings, default `[]`). |
 
+#### Sourcing OAuth credentials from a Secret
+
+Inlining `client_id` / `client_secret` above writes them in plaintext into the `<release>-control-config` ConfigMap. To keep the client secrets out of the ConfigMap (and out of your values), reference an existing `Secret` in the release namespace instead. The chart injects each referenced key as an environment variable (`GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) via `secretKeyRef`; the control plane reads these when the corresponding field is absent from `control.toml`.
+
+```sh
+kubectl create secret generic oauth-secrets \
+  --from-literal=github-client-secret=shhh \
+  --from-literal=google-client-secret=shhh
+```
+
+```yaml
+control:
+  config:
+    auth:
+      redirect_base_url: https://control.acme.com
+      github:
+        client_id: Iv1.0123456789abcdef   # not sensitive — fine to inline
+        allowed_orgs: [acme-corp]
+        secret:
+          name: oauth-secrets
+          clientSecretKey: github-client-secret
+      google:
+        client_id: 0123456789-abc.apps.googleusercontent.com
+        allowed_domains: [acme.com]
+        secret:
+          name: oauth-secrets
+          clientSecretKey: google-client-secret
+```
+
+| Option | Description |
+|-|-|
+| `<provider>.secret.name` | Name of an existing `Secret` in the release namespace holding the credentials. Required when either key below is set (string, optional). |
+| `<provider>.secret.clientIdKey` | Key in that Secret to inject as `GITHUB_CLIENT_ID` / `GOOGLE_CLIENT_ID`. Leave `client_id` unset when this is set (string, optional). |
+| `<provider>.secret.clientSecretKey` | Key in that Secret to inject as `GITHUB_CLIENT_SECRET` / `GOOGLE_CLIENT_SECRET`. Leave `client_secret` unset when this is set (string, optional). |
+
+The provider's `[auth.<provider>]` section still has to render for the login route to be enabled, so keep at least one inline field (`client_id`, `allowed_orgs`/`allowed_domains`) or the `secret` block set under the provider. Env vars sourced this way are not hashed into the deployment's `checksum/config` annotation — rotating the referenced Secret needs a manual `kubectl rollout restart deployment/<release>-control`.
+
 ### Helm
 
 When the dashboard provisions a new PgDog cluster, it shells out to `helm upgrade --install` against a chart fetched from our Helm repository. `control.config.helm` controls which chart and which repository. The defaults point at the public `pgdogdev` chart on `helm.pgdog.dev`, which is what you want unless you mirror the chart internally.

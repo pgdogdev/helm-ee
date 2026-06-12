@@ -104,10 +104,27 @@ control:
       #   client_id: ""
       #   client_secret: ""
       #   allowed_orgs: []
+      #   # Instead of inlining client_id/client_secret above (which land in
+      #   # the ConfigMap in plaintext), source them from an existing Secret
+      #   # in the release namespace. Each key is injected as the matching
+      #   # GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET env var via secretKeyRef,
+      #   # which the control plane reads when the field is absent from
+      #   # control.toml. When using a key here, leave the corresponding
+      #   # client_id/client_secret above unset. The `[auth.github]` section
+      #   # still renders (enabling the provider) as long as this block or
+      #   # allowed_orgs is set.
+      #   secret:
+      #     name: ""                # existing Secret in the release namespace
+      #     clientIdKey: ""         # key -> GITHUB_CLIENT_ID (optional)
+      #     clientSecretKey: ""     # key -> GITHUB_CLIENT_SECRET (optional)
       # google:
       #   client_id: ""
       #   client_secret: ""
       #   allowed_domains: []
+      #   secret:
+      #     name: ""                # existing Secret in the release namespace
+      #     clientIdKey: ""         # key -> GOOGLE_CLIENT_ID (optional)
+      #     clientSecretKey: ""     # key -> GOOGLE_CLIENT_SECRET (optional)
     alerts: {}
       # evaluation_window_secs: 300
       # thresholds:

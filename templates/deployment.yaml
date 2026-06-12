@@ -96,6 +96,46 @@ spec:
         - name: AWS_REGION
           value: {{ . | quote }}
         {{- end }}
+        {{- $auth := (.Values.control.config | default dict).auth | default dict }}
+        {{- with $auth.github }}
+        {{- with .secret }}
+        # OAuth credentials sourced from an existing Secret. The control
+        # plane reads these env vars as defaults when the matching field is
+        # absent from control.toml (enterprise/control2/src/config.rs).
+        {{- if .clientIdKey }}
+        - name: GITHUB_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ required "control.config.auth.github.secret.name is required when clientIdKey is set" .name | quote }}
+              key: {{ .clientIdKey | quote }}
+        {{- end }}
+        {{- if .clientSecretKey }}
+        - name: GITHUB_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ required "control.config.auth.github.secret.name is required when clientSecretKey is set" .name | quote }}
+              key: {{ .clientSecretKey | quote }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
+        {{- with $auth.google }}
+        {{- with .secret }}
+        {{- if .clientIdKey }}
+        - name: GOOGLE_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ required "control.config.auth.google.secret.name is required when clientIdKey is set" .name | quote }}
+              key: {{ .clientIdKey | quote }}
+        {{- end }}
+        {{- if .clientSecretKey }}
+        - name: GOOGLE_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ required "control.config.auth.google.secret.name is required when clientSecretKey is set" .name | quote }}
+              key: {{ .clientSecretKey | quote }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
         {{- if .Values.control.aws.accessKeyId }}
         envFrom:
         - secretRef:
