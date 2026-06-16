@@ -461,6 +461,33 @@ The control plane reads its runtime configuration from a TOML file at `/etc/pgdo
 
 Each subsection below covers one TOML section.
 
+### PgDog API IP Allowlist
+
+`control.config.api.pgdog.ip_allowlist` adds an optional source-IP gate in front of the PgDog machine API endpoints under `/api/v2/*`. It is disabled by default. When enabled, the control plane accepts those requests only when the direct TCP peer address falls inside one of the configured CIDR ranges:
+
+```yaml
+control:
+  config:
+    api:
+      pgdog:
+        ip_allowlist:
+          enabled: true
+          allowed_cidrs:
+            - 10.0.0.0/8
+            - 172.16.0.0/12
+            - 192.168.0.0/16
+            - 127.0.0.0/8
+            - ::1/128
+            - fc00::/7
+```
+
+If `allowed_cidrs` is omitted, the control plane defaults to private IPv4 ranges, IPv4/IPv6 loopback, and IPv6 ULA. The check intentionally uses the direct TCP peer address and ignores forwarded headers such as `X-Forwarded-For`; configure the CIDRs for the address the control plane actually sees from your ingress, load balancer, sidecar, or PgDog caller.
+
+| Option | Description |
+|-|-|
+| `api.pgdog.ip_allowlist.enabled` | Enables source-IP checks for `/api/v2/*` PgDog endpoints (bool, default `false`). |
+| `api.pgdog.ip_allowlist.allowed_cidrs` | CIDR ranges allowed to call `/api/v2/*`. Invalid CIDRs cause protected requests to be rejected until the config is fixed (list of strings, default private IPv4 ranges, loopback, and IPv6 ULA). |
+
 ### Authentication
 
 `control.config.auth` wires up the OAuth-backed login flow for the dashboard. GitHub and Google are supported and can be enabled side by side. At least one needs to be configured, or the dashboard will be **accessible by anyone with the URL**:

@@ -71,6 +71,20 @@ control:
   # unset falls back to the Rust-side default. Field names match the TOML
   # keys (snake_case) so values are passed through verbatim.
   config:
+    api: {}
+      # pgdog:
+      #   ip_allowlist:
+      #     # When enabled, restricts /api/v2/* PgDog API endpoints by the
+      #     # direct TCP peer IP address. Forwarded headers are ignored.
+      #     enabled: false
+      #     # Defaults, when omitted:
+      #     # - 10.0.0.0/8
+      #     # - 172.16.0.0/12
+      #     # - 192.168.0.0/16
+      #     # - 127.0.0.0/8
+      #     # - ::1/128
+      #     # - fc00::/7
+      #     allowed_cidrs: []
     rds: {}
       # refresh_interval_secs: 60
       # Experimental: do not enable in production yet.
