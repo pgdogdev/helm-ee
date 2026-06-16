@@ -18,6 +18,20 @@ metadata:
     {{- include "pgdog-control.labels" . | nindent 4 }}
 data:
   control.toml: |
+    {{- with $config.api }}
+    {{- with .pgdog }}
+    {{- with .ip_allowlist }}
+    [api.pgdog.ip_allowlist]
+    {{- if hasKey . "enabled" }}
+    enabled = {{ .enabled }}
+    {{- end }}
+    {{- if hasKey . "allowed_cidrs" }}
+    allowed_cidrs = [{{ range $i, $cidr := .allowed_cidrs }}{{ if $i }}, {{ end }}{{ $cidr | quote }}{{ end }}]
+    {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
+
     {{- with $config.rds }}
     [rds]
     {{- with .refresh_interval_secs }}
