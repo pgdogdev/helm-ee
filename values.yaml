@@ -23,7 +23,7 @@ control:
     # via envFrom. Leave empty in EKS — roleArn above is preferred.
     accessKeyId: ""
     secretAccessKey: ""
-    sessionToken: ""            # optional; only for temporary credentials
+    sessionToken: "" # optional; only for temporary credentials
     # AWS region the SDK should target. Emitted as AWS_REGION on the
     # container. Required when the pod isn't on an EKS node whose IMDS
     # exposes one.
@@ -103,7 +103,7 @@ control:
       # evict_after_secs: 60
       # metrics_retention_secs: 300
       # query_history_limit: 1000
-      # autoreload: false
+      # autoreload: off
     helm: {}
       # chart: pgdog
       # repo: pgdogdev
