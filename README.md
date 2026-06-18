@@ -648,7 +648,7 @@ control:
       evict_after_secs: 60
       metrics_retention_secs: 300
       query_history_limit: 1000
-      autoreload: "immediately" # or in_sync
+      autoreload: immediately # or in_sync, or off
 ```
 
 | Option | Description |
@@ -658,7 +658,7 @@ control:
 | `evict_after_secs` | Instance is dropped from the store entirely if its newest metric is older than this (int, default `60`). |
 | `metrics_retention_secs` | How much per-instance metric history is kept in memory. Older points are dropped as new ones arrive (int, default `300`). |
 | `query_history_limit` | Per-token historical query store capacity. Oldest deduped query entries are evicted first once the limit is reached (int, default `1000`). |
-| `autoreload` | Automatically enqueue `reload_configuration` for instances that report config drift (enum, default `off`, available options: "off", "immediately", "in_sync"). |
+| `autoreload` | Automatically enqueue `reload_configuration` for instances that report config drift (enum, default `off`, available options: `off`, `immediately`, `in_sync`). |
 
 ### Slack Notifications
 
