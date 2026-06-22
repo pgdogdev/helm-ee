@@ -2,6 +2,8 @@ name: Render Helm chart
 
 on:
   push:
+    branches: [main]
+  pull_request:
 
 jobs:
   render:
@@ -18,8 +20,43 @@ jobs:
         with:
           version: latest
 
-      - name: Lint chart
-        run: helm lint .
+      - name: Run chart tests
+        run: ./test/test.sh
 
-      - name: Render chart
-        run: helm template control .
+  validate-configs:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      CONTROL2_IMAGE: ghcr.io/pgdogdev/pgdog-enterprise/control:main-ent
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: latest
+
+      - name: Install yq
+        uses: mikefarah/yq@master
+
+      - name: Pull control2 image
+        run: docker pull "$CONTROL2_IMAGE"
+
+      - name: Validate generated control configs
+        run: |
+          set -eo pipefail
+          for values_file in test/values-*.yaml; do
+            name=$(basename "$values_file" .yaml | sed 's/values-//')
+            echo "==> Validating control config for $name..."
+            rm -f /tmp/control.toml
+            ./test/generate-config.sh "$values_file" /tmp/control.toml
+            docker run --rm \
+              -v /tmp/control.toml:/tmp/control.toml:ro \
+              "$CONTROL2_IMAGE" \
+              /usr/local/bin/control2 configcheck --config /tmp/control.toml
+          done
+          echo "==> All control configs valid!"

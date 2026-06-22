@@ -101,9 +101,12 @@ control:
       # tick_secs: 1
       # stale_after_secs: 5
       # evict_after_secs: 60
+      # process_notify_interval_secs: 60
       # metrics_retention_secs: 300
       # query_history_limit: 1000
       # autoreload: off
+    autoscaling: {}
+      # pool_size: false
     helm: {}
       # chart: pgdog
       # repo: pgdogdev
