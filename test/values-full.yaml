@@ -1,0 +1,72 @@
+control:
+  aws:
+    roleArn: arn:aws:iam::123456789012:role/pgdog-control
+    region: us-west-2
+  rbac:
+    writeNamespaces:
+      - pgdog
+      - pgdog-staging
+  config:
+    api:
+      pgdog:
+        ip_allowlist:
+          enabled: true
+          allowed_cidrs:
+            - 10.0.0.0/8
+            - 192.168.0.0/16
+    rds:
+      refresh_interval_secs: 45
+      autodiscovery: true
+    kube:
+      refresh_interval_secs: 10
+    dns:
+      refresh_interval_secs: 20
+    cloudwatch:
+      refresh_interval_secs: 60
+      lookback_secs: 1800
+      period_secs: 60
+    store:
+      tick_secs: 1
+      stale_after_secs: 5
+      evict_after_secs: 60
+      process_notify_interval_secs: 30
+      metrics_retention_secs: 600
+      query_history_limit: 500
+      autoreload: "immediately"
+    autoscaling:
+      pool_size: true
+    helm:
+      chart: pgdog
+      repo: pgdogdev
+      repo_url: https://helm.pgdog.dev
+    auth:
+      cookie_secret: test-cookie-secret
+      redirect_base_url: https://control.example.com
+      cookie_secure: true
+      session_max_age_days: 14
+      state_max_age_min: 5
+      github:
+        client_id: github-client
+        client_secret: github-secret
+        allowed_orgs:
+          - pgdogdev
+      google:
+        client_id: google-client
+        client_secret: google-secret
+        allowed_domains:
+          - example.com
+    alerts:
+      evaluation_window_secs: 120
+      thresholds:
+        clients_waiting: 10
+        cpu: 90.0
+        memory: 2048
+        server_connections: 100
+      incident_io:
+        api_key: incident-token
+    slack:
+      bot_token: slack-token
+      channel: "#alerts"
+    redis:
+      url: redis://redis.example.com:6379
+      save_interval_secs: 30

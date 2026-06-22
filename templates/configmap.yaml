@@ -84,6 +84,9 @@ data:
     {{- with .evict_after_secs }}
     evict_after_secs = {{ . }}
     {{- end }}
+    {{- with .process_notify_interval_secs }}
+    process_notify_interval_secs = {{ . }}
+    {{- end }}
     {{- with .metrics_retention_secs }}
     metrics_retention_secs = {{ . }}
     {{- end }}
@@ -91,7 +94,15 @@ data:
     query_history_limit = {{ .query_history_limit }}
     {{- end }}
     {{- if hasKey . "autoreload" }}
-    autoreload = {{ .autoreload }}
+    autoreload = {{ .autoreload | quote }}
+    {{- end }}
+    {{- end }}
+
+    {{- with $config.autoscaling }}
+
+    [autoscaling]
+    {{- if hasKey . "pool_size" }}
+    pool_size = {{ .pool_size }}
     {{- end }}
     {{- end }}
 

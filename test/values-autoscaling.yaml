@@ -1,0 +1,6 @@
+control:
+  config:
+    store:
+      process_notify_interval_secs: 30
+    autoscaling:
+      pool_size: true
