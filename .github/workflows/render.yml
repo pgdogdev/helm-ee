@@ -42,13 +42,6 @@ jobs:
       - name: Install yq
         uses: mikefarah/yq@master
 
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.PGDOG_ENTERPRISE_TOKEN }}
-
       - name: Pull control2 image
         run: docker pull "$CONTROL2_IMAGE"
 
