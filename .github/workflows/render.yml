@@ -2,6 +2,7 @@ name: Render Helm chart
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 jobs:
