@@ -57,6 +57,6 @@ jobs:
             docker run --rm \
               -v /tmp/control.toml:/tmp/control.toml:ro \
               "$CONTROL2_IMAGE" \
-              configcheck --config /tmp/control.toml
+              /usr/local/bin/control2 configcheck --config /tmp/control.toml
           done
           echo "==> All control configs valid!"
