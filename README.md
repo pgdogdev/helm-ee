@@ -267,6 +267,7 @@ When `control.rbac.create` is `true` (default), the chart renders:
 
 - A `ServiceAccount` for the control pod. If `control.aws.roleArn` is set, the ServiceAccount also carries the `eks.amazonaws.com/role-arn` annotation, which is what EKS IRSA looks for when handing the pod temporary AWS credentials.
 - A `ClusterRole` and `ClusterRoleBinding` granting **read-only** access cluster-wide. This is enough for the dashboard to list namespaces and read deployments, statefulsets, pods, services, configmaps, and secrets in any namespace. It cannot change anything. Pod logs are included so the deployment log view works.
+- A namespace-scoped `Role` and `RoleBinding` in the release namespace granting access to `coordination.k8s.io` `Lease` objects for control-plane leader election.
 - For each namespace you list in `control.rbac.writeNamespaces`, a namespace-scoped `Role` and `RoleBinding` granting **write** access (create, update, patch, delete) on the resources PgDog actually manages: deployments, statefulsets, services, configmaps, secrets, service accounts, roles, role bindings, and pod disruption budgets. Namespaces not on the list stay strictly read-only.
 
 A typical setup grants write access only to the namespaces where you want PgDog clusters to live:

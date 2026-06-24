@@ -106,6 +106,26 @@ data:
     {{- end }}
     {{- end }}
 
+    {{- with $config.leader }}
+
+    [leader]
+    {{- if hasKey . "enabled" }}
+    enabled = {{ .enabled }}
+    {{- end }}
+    {{- with .lease_name }}
+    lease_name = {{ . | quote }}
+    {{- end }}
+    {{- with .lease_duration_secs }}
+    lease_duration_secs = {{ . }}
+    {{- end }}
+    {{- with .renew_interval_secs }}
+    renew_interval_secs = {{ . }}
+    {{- end }}
+    {{- with .release_timeout_secs }}
+    release_timeout_secs = {{ . }}
+    {{- end }}
+    {{- end }}
+
     {{- with $config.helm }}
 
     [helm]

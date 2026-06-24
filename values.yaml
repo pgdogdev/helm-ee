@@ -107,6 +107,12 @@ control:
       # autoreload: off
     autoscaling: {}
       # pool_size: false
+    leader: {}
+      # enabled: true
+      # lease_name: ""              # Empty means derive from Helm release.
+      # lease_duration_secs: 15
+      # renew_interval_secs: 5
+      # release_timeout_secs: 3
     helm: {}
       # chart: pgdog
       # repo: pgdogdev
