@@ -9,9 +9,22 @@ spec:
   selector:
     matchLabels:
       {{- include "pgdog-control.selectorLabels" . | nindent 6 }}
+  # Readiness is leader-aware so only the elected control pod receives
+  # Service traffic. New pods normally start as followers, so they do not
+  # become Ready while the old leader still holds the Lease. Allowing the
+  # whole old ReplicaSet to be unavailable lets Kubernetes terminate the
+  # old leader, release the Lease, and promote a new-version pod instead
+  # of waiting forever for a follower to become Ready.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 100%
   template:
     metadata:
       annotations:
+        meta.helm.sh/release-name: {{ .Release.Name | quote }}
+        meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
         # Roll the deployment when any rendered config / secret content
         # changes. Each annotation hashes the *template output*, not
         # values directly, so transformations applied inside the
@@ -169,12 +182,12 @@ spec:
           failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /healthz
+            path: /readyz
             port: {{ .Values.control.port }}
           initialDelaySeconds: 30
-          periodSeconds: 10
-          timeoutSeconds: 3
-          failureThreshold: 3
+          periodSeconds: 2
+          timeoutSeconds: 1
+          failureThreshold: 1
       volumes:
       - name: config
         configMap:

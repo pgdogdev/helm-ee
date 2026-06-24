@@ -35,6 +35,12 @@ control:
       autoreload: "immediately"
     autoscaling:
       pool_size: true
+    leader:
+      enabled: true
+      lease_name: pgdog-control-leader
+      lease_duration_secs: 20
+      renew_interval_secs: 7
+      release_timeout_secs: 4
     helm:
       chart: pgdog
       repo: pgdogdev
