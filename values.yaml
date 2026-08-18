@@ -43,6 +43,42 @@ control:
     # means no write access anywhere — list the release namespace
     # explicitly if you want control to manage workloads alongside itself.
     writeNamespaces: []
+  # externalSecrets sources config.auth.cookie_secret from a Secret managed
+  # by the external-secrets operator (https://external-secrets.io) instead
+  # of the chart's own randomly generated one. See config.auth.cookie_secret
+  # below for how the value is picked up once synced.
+  externalSecrets:
+    # enabled switches cookie_secret sourcing to the Secret named below,
+    # instead of the chart-managed random secret.
+    enabled: false
+    # create controls whether the chart renders an ExternalSecret resource.
+    # Set to false to reference an ExternalSecret you already manage
+    # yourself (only secretName is then used).
+    create: true
+    # name of the ExternalSecret resource to create (only used when
+    # create: true). Defaults to `<release>-control`.
+    name: ""
+    # secretName is the target Secret populated by the ExternalSecret (or
+    # by your own ExternalSecret when create: false). Must contain a
+    # cookie_secret key. Defaults to `<release>-secrets`, the same name the
+    # chart would otherwise use for its own generated secret.
+    secretName: ""
+    # refreshInterval defines how often to sync secrets from external
+    # source (only used when create: true)
+    refreshInterval: 1h
+    # secretStoreRef references the SecretStore to use
+    # (only used when create: true)
+    secretStoreRef:
+      name: ""
+      kind: SecretStore
+    # remoteRefs defines the external secret references
+    # (only used when create: true)
+    remoteRefs: []
+      # Example structure:
+      # - secretKey: cookie_secret
+      #   remoteRef:
+      #     key: pgdog/control
+      #     property: cookie_secret
   resources:
     requests:
       memory: "256Mi"
@@ -118,7 +154,9 @@ control:
       # repo: pgdogdev
       # repo_url: https://helm.pgdog.dev
     auth: {}
-      # cookie_secret: ""               # optional; random key generated at boot when absent
+      # cookie_secret: ""               # optional; random key generated at boot when absent.
+      #                                  # To source it from external-secrets instead, leave
+      #                                  # this unset and configure control.externalSecrets above.
       # redirect_base_url: ""           # e.g. https://control.example.com
       # cookie_secure: true
       # session_max_age_days: 30

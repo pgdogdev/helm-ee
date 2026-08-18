@@ -4,7 +4,7 @@
 {{- if $auth.cookie_secret -}}
 {{- $cookieSecret = $auth.cookie_secret -}}
 {{- else -}}
-{{- $existing := (lookup "v1" "Secret" .Release.Namespace (printf "%s-secrets" .Release.Name)) | default dict -}}
+{{- $existing := (lookup "v1" "Secret" .Release.Namespace (include "pgdog-control.secretsName" .)) | default dict -}}
 {{- $existingData := $existing.data | default dict -}}
 {{- if hasKey $existingData "cookie_secret" -}}
 {{- $cookieSecret = index $existingData "cookie_secret" | b64dec -}}
