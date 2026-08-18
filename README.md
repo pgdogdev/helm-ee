@@ -48,6 +48,7 @@ The PgDog deployment contains the following components:
 | ConfigMap | Configuration for the control plane. |
 | Secret | Secret that stores the key used to encrypt authentication cookies. |
 | Service account, Cluster role, Cluster role bindings | Service account with RBAC to access select Kube APIs. See [RBAC](#rbac) for more details. |
+| NetworkPolicy | Optional; restricts ingress/egress traffic. See [NetworkPolicy](#networkpolicy) for more details. |
 
 In addition to installing the PgDog control plane, this chart will deploy a Redis deployment (with one replica). The control plane uses Redis for storing
 metrics. The Redis deployment has the following components:
@@ -292,6 +293,37 @@ In the above example, the dashboard can see workloads in every namespace, but it
 ### Disabling RBAC
 
 If your cluster manages RBAC out-of-band (a platform team's controller, GitOps, an admission policy), set `control.rbac.create: false`. The chart then renders no ServiceAccount, no ClusterRole/Binding, and no Role/Bindings, and the deployment runs the pod with `automountServiceAccountToken: false`. The dashboard still serves the UI, but every Kubernetes-backed view will be empty until you bind an externally-managed ServiceAccount with equivalent permissions to the pod yourself.
+
+## NetworkPolicy
+
+When `networkPolicy.enabled` is `true`, the chart renders a `NetworkPolicy` for the control pod and one for Redis, restricting traffic to what the control plane actually needs:
+
+- Ingress on `control.port` from the `ingress-nginx` namespace only.
+- Egress to Redis, to `kube-system` for DNS, and to the public internet on 5432 (Postgres) and 443 (HTTPS, e.g. the AWS/CloudWatch/RDS APIs), excluding RFC1918 private ranges.
+- Redis accepts ingress only from the control pod and allows no egress.
+
+In clusters that deny pod-to-pod traffic by default, the built-in ingress-nginx rule alone often isn't enough — for example, PgDog pods calling the control plane's API need their own rule. Use `networkPolicy.extraIngress` to add any number of additional ingress rules to the control `NetworkPolicy`:
+
+```yaml
+networkPolicy:
+  enabled: true
+  extraIngress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: pgdog
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pgdog
+      ports:
+        - protocol: TCP
+          port: 8080
+```
+
+| Option | Description |
+|-|-|
+| `networkPolicy.enabled` | Render the control and Redis `NetworkPolicy` resources (bool, default `false`). |
+| `networkPolicy.extraIngress` | Additional ingress rules appended to the control `NetworkPolicy`, on top of the built-in ingress-nginx rule. Each entry follows the standard `NetworkPolicyIngressRule` schema (`from`/`ports`) and is passed through verbatim (list, default `[]`). |
 
 ## AWS access (EKS / IRSA)
 
