@@ -229,6 +229,25 @@ redis:
 
 networkPolicy:
   enabled: false
+  # extraIngress appends additional ingress rules to the control
+  # NetworkPolicy, on top of the built-in rule allowing traffic from the
+  # ingress-nginx namespace. Each entry follows the standard
+  # NetworkPolicyIngressRule schema (from/ports) and is passed through
+  # verbatim. Useful in clusters that deny pod-to-pod traffic by default,
+  # e.g. to allow pgdog pods to reach the control API.
+  # Example:
+  # extraIngress:
+  #   - from:
+  #       - namespaceSelector:
+  #           matchLabels:
+  #             kubernetes.io/metadata.name: pgdog
+  #         podSelector:
+  #           matchLabels:
+  #             app.kubernetes.io/name: pgdog
+  #     ports:
+  #       - protocol: TCP
+  #         port: 8080
+  extraIngress: []
 
 ingress:
   enabled: true

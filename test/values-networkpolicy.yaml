@@ -1,0 +1,16 @@
+networkPolicy:
+  enabled: true
+  extraIngress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: pgdog
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pgdog
+      ports:
+        - protocol: TCP
+          port: 8080
+    - from:
+        - ipBlock:
+            cidr: 10.0.0.0/16
