@@ -80,8 +80,6 @@ spec:
         env:
         - name: CONTROL_CONFIG
           value: /etc/pgdog-control/control.toml
-        - name: REDIS_URL
-          value: {{ include "pgdog-control.redis.url" . | quote }}
         - name: HOME
           value: /var/lib/pgdog-control
         - name: XDG_CACHE_HOME

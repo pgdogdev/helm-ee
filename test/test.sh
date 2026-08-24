@@ -21,7 +21,11 @@ if grep -q 'app.kubernetes.io/component: redis' <<< "$external_render"; then
   echo "chart-managed Redis resources rendered while redis.enabled=false" >&2
   exit 1
 fi
-grep -A1 -- '- name: REDIS_URL' <<< "$external_render" | grep -q 'redis://external-redis.example.com:6379'
+if grep -q -- '- name: REDIS_URL' <<< "$external_render"; then
+  echo "REDIS_URL environment variable rendered, but the app only reads control.toml" >&2
+  exit 1
+fi
+grep -A1 '^    \[redis\]$' <<< "$external_render" | grep -q 'url = "redis://external-redis.example.com:6379"'
 
 echo ""
 echo "==> Verifying configurable Redis image..."

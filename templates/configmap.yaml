@@ -231,6 +231,7 @@ data:
     {{- $redis := $config.redis | default dict }}
 
     [redis]
+    url = {{ include "pgdog-control.redis.url" . | quote }}
     {{- with $redis.save_interval_secs }}
     save_interval_secs = {{ . }}
     {{- end }}

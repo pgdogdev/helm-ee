@@ -168,8 +168,8 @@ redis:
   # Deploy the chart-managed Redis instance. Disable this when using an
   # external Redis and set redis.url to its connection string.
   enabled: true
-  # Connection string injected into the control deployment as REDIS_URL.
-  # When empty, it points to the chart-managed Redis service.
+  # Connection string written to [redis].url in control.toml. When empty,
+  # it points to the chart-managed Redis service.
   url: ""
   image:
     repository: redis

@@ -71,7 +71,7 @@ redis:
 | Option | Description |
 |-|-|
 | `redis.enabled` | Deploy the chart-managed Redis resources (bool, default `true`). |
-| `redis.url` | Redis connection string injected into the control container as `REDIS_URL`. When empty, defaults to the chart-managed Redis Service (string, default `""`). |
+| `redis.url` | Redis connection string written to `[redis].url` in `control.toml`. When empty, defaults to the chart-managed Redis Service (string, default `""`). |
 | `redis.image.repository` | Redis image repository (string, default `redis`). |
 | `redis.image.tag` | Redis image tag (string, default `7-alpine`). |
 | `redis.image.pullPolicy` | Redis image pull policy (string, default `IfNotPresent`). |
@@ -731,7 +731,7 @@ control:
 
 ### Redis persistence
 
-`control.config.redis` controls how often the in-memory store is snapshotted to Redis between process restarts. The chart provisions an in-cluster Redis (`<release>-redis`) by default and injects its connection string as `REDIS_URL`.
+`control.config.redis` controls how often the in-memory store is snapshotted to Redis between process restarts. The chart provisions an in-cluster Redis (`<release>-redis`) by default and writes its connection string to `[redis].url` in `control.toml`.
 
 ```yaml
 control:
