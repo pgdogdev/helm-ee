@@ -229,10 +229,9 @@ data:
     {{- end }}
 
     {{- $redis := $config.redis | default dict }}
-    {{- $redisUrl := $redis.url | default (printf "redis://%s.%s.svc.cluster.local:6379" (include "pgdog-control.redis.fullname" .) .Release.Namespace) }}
 
     [redis]
-    url = {{ $redisUrl | quote }}
+    url = {{ include "pgdog-control.redis.url" . | quote }}
     {{- with $redis.save_interval_secs }}
     save_interval_secs = {{ . }}
     {{- end }}

@@ -52,6 +52,16 @@ the same cluster don't collide.
 {{- end }}
 
 {{/*
+Redis URL used by the control plane. redis.url is the public chart setting;
+control.config.redis.url remains supported for backwards compatibility.
+*/}}
+{{- define "pgdog-control.redis.url" -}}
+{{- $config := .Values.control.config | default dict -}}
+{{- $redisConfig := $config.redis | default dict -}}
+{{- .Values.redis.url | default $redisConfig.url | default (printf "redis://%s.%s.svc.cluster.local:6379" (include "pgdog-control.redis.fullname" .) .Release.Namespace) -}}
+{{- end }}
+
+{{/*
 ServiceAccount name for the control component. Falls back to the
 control fullname when not explicitly set in values.
 */}}

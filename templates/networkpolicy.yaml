@@ -24,6 +24,7 @@ spec:
   {{- toYaml . | nindent 2 }}
   {{- end }}
   egress:
+  {{- if .Values.redis.enabled }}
   - to:
     - podSelector:
         matchLabels:
@@ -31,6 +32,11 @@ spec:
     ports:
     - protocol: TCP
       port: 6379
+  {{- else }}
+  - ports:
+    - protocol: TCP
+      port: 6379
+  {{- end }}
   - to:
     - ipBlock:
         cidr: 0.0.0.0/0
@@ -60,6 +66,7 @@ spec:
       port: 53
     - protocol: TCP
       port: 53
+{{- if .Values.redis.enabled }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -83,4 +90,5 @@ spec:
     - protocol: TCP
       port: 6379
   egress: []
+{{- end }}
 {{- end }}

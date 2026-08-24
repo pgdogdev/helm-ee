@@ -1,3 +1,4 @@
+{{- if .Values.redis.enabled }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
@@ -9,3 +10,4 @@ spec:
   selector:
     matchLabels:
       {{- include "pgdog-control.redis.selectorLabels" . | nindent 6 }}
+{{- end }}
