@@ -161,10 +161,21 @@ control:
       # bot_token: ""                    # optional; defaults to SLACK_BOT_TOKEN env when absent
       # channel: ""                      # optional; defaults to SLACK_CHANNEL env when absent
     redis: {}
-      # url: ""                          # optional; defaults to in-cluster redis
+      # url: ""                          # deprecated; use redis.url instead
       # save_interval_secs: 60
 
 redis:
+  # Deploy the chart-managed Redis instance. Disable this when using an
+  # external Redis and set redis.url to its connection string.
+  enabled: true
+  # Connection string injected into the control deployment as REDIS_URL.
+  # When empty, it points to the chart-managed Redis service.
+  url: ""
+  image:
+    repository: redis
+    tag: "7-alpine"
+    pullPolicy: IfNotPresent
+    pullSecrets: []
   resources:
     requests:
       memory: "128Mi"

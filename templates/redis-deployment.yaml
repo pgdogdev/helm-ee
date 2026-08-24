@@ -1,3 +1,4 @@
+{{- if .Values.redis.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -17,13 +18,18 @@ spec:
         cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
     spec:
       automountServiceAccountToken: false
+      {{- with .Values.redis.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.redis.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
       - name: redis
-        image: redis:7-alpine
+        image: "{{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag }}"
+        imagePullPolicy: {{ .Values.redis.image.pullPolicy }}
         {{- with .Values.redis.containerSecurityContext }}
         securityContext:
           {{- toYaml . | nindent 10 }}
@@ -38,3 +44,4 @@ spec:
           limits:
             memory: {{ .Values.redis.resources.limits.memory | quote }}
             cpu: {{ .Values.redis.resources.limits.cpu | quote }}
+{{- end }}

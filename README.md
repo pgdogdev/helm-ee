@@ -36,7 +36,7 @@ The three somewhat complex steps are:
 
 ## Chart summary
 
-This chart installs two deployments: PgDog control plane and Redis.
+This chart installs the PgDog control plane and, by default, a Redis instance.
 
 The PgDog deployment contains the following components:
 
@@ -50,13 +50,32 @@ The PgDog deployment contains the following components:
 | Service account, Cluster role, Cluster role bindings | Service account with RBAC to access select Kube APIs. See [RBAC](#rbac) for more details. |
 | NetworkPolicy | Optional; restricts ingress/egress traffic. See [NetworkPolicy](#networkpolicy) for more details. |
 
-In addition to installing the PgDog control plane, this chart will deploy a Redis deployment (with one replica). The control plane uses Redis for storing
-metrics. The Redis deployment has the following components:
+By default, the chart also deploys a single-replica Redis instance. The control plane uses Redis for storing metrics. Set `redis.enabled: false` and provide `redis.url` to use an external Redis instead. The chart-managed Redis has the following components:
 
 | Components | Description |
 |-|-|
 | Deployment | Redis deployment with one replica. |
 | Service | Redis service pointing to the deployment, with selector labels configured automatically. |
+
+```yaml
+redis:
+  enabled: true
+  url: "" # defaults to redis://<release>-redis.<namespace>.svc.cluster.local:6379
+  image:
+    repository: redis
+    tag: "7-alpine"
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+```
+
+| Option | Description |
+|-|-|
+| `redis.enabled` | Deploy the chart-managed Redis resources (bool, default `true`). |
+| `redis.url` | Redis connection string injected into the control container as `REDIS_URL`. When empty, defaults to the chart-managed Redis Service (string, default `""`). |
+| `redis.image.repository` | Redis image repository (string, default `redis`). |
+| `redis.image.tag` | Redis image tag (string, default `7-alpine`). |
+| `redis.image.pullPolicy` | Redis image pull policy (string, default `IfNotPresent`). |
+| `redis.image.pullSecrets` | Image pull secrets attached to the Redis pod (list, default `[]`). |
 
 ### Ingress
 
@@ -296,11 +315,11 @@ If your cluster manages RBAC out-of-band (a platform team's controller, GitOps, 
 
 ## NetworkPolicy
 
-When `networkPolicy.enabled` is `true`, the chart renders a `NetworkPolicy` for the control pod and one for Redis, restricting traffic to what the control plane actually needs:
+When `networkPolicy.enabled` is `true`, the chart renders a `NetworkPolicy` for the control pod and, when `redis.enabled` is true, one for Redis, restricting traffic to what the control plane actually needs:
 
 - Ingress on `control.port` from the `ingress-nginx` namespace only.
-- Egress to Redis, to `kube-system` for DNS, and to the public internet on 5432 (Postgres) and 443 (HTTPS, e.g. the AWS/CloudWatch/RDS APIs), excluding RFC1918 private ranges.
-- Redis accepts ingress only from the control pod and allows no egress.
+- Egress to Redis on port 6379, to `kube-system` for DNS, and to the public internet on 5432 (Postgres) and 443 (HTTPS, e.g. the AWS/CloudWatch/RDS APIs), excluding RFC1918 private ranges. When chart-managed Redis is enabled, the Redis rule is restricted to its pods; otherwise it permits egress to any destination on port 6379 so the external Redis can be reached.
+- Chart-managed Redis accepts ingress only from the control pod and allows no egress.
 
 In clusters that deny pod-to-pod traffic by default, the built-in ingress-nginx rule alone often isn't enough — for example, PgDog pods calling the control plane's API need their own rule. Use `networkPolicy.extraIngress` to add any number of additional ingress rules to the control `NetworkPolicy`:
 
@@ -322,7 +341,7 @@ networkPolicy:
 
 | Option | Description |
 |-|-|
-| `networkPolicy.enabled` | Render the control and Redis `NetworkPolicy` resources (bool, default `false`). |
+| `networkPolicy.enabled` | Render the control and, when enabled, Redis `NetworkPolicy` resources (bool, default `false`). |
 | `networkPolicy.extraIngress` | Additional ingress rules appended to the control `NetworkPolicy`, on top of the built-in ingress-nginx rule. Each entry follows the standard `NetworkPolicyIngressRule` schema (`from`/`ports`) and is passed through verbatim (list, default `[]`). |
 
 ## AWS access (EKS / IRSA)
@@ -712,20 +731,28 @@ control:
 
 ### Redis persistence
 
-`control.config.redis` controls how the in-memory store is snapshotted to Redis between process restarts. The chart already provisions an in-cluster Redis (`<release>-redis`) and the control plane points at it by default, so most installs leave this section alone.
+`control.config.redis` controls how often the in-memory store is snapshotted to Redis between process restarts. The chart provisions an in-cluster Redis (`<release>-redis`) by default and injects its connection string as `REDIS_URL`.
 
 ```yaml
 control:
   config:
     redis:
-      url: redis://my-redis.cache:6379
       save_interval_secs: 60
 ```
 
 | Option | Description |
 |-|-|
-| `url` | Redis connection string. Leave empty to use the in-cluster Redis the chart installs; set it only to point at an external Redis (string, optional). |
 | `save_interval_secs` | How often the background task snapshots the store to Redis (int, default `60`). |
+
+To use an external Redis, disable all chart-managed Redis resources and set its URL:
+
+```yaml
+redis:
+  enabled: false
+  url: redis://my-redis.cache:6379
+```
+
+For backwards compatibility, `control.config.redis.url` is still accepted, but `redis.url` is preferred.
 
 ## Examples
 

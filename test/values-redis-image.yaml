@@ -1,0 +1,10 @@
+ingress:
+  enabled: false
+
+redis:
+  image:
+    repository: registry.example.com/platform/redis
+    tag: "8-alpine"
+    pullPolicy: Always
+    pullSecrets:
+      - name: registry-credentials
