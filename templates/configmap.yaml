@@ -93,6 +93,9 @@ data:
     {{- if hasKey . "query_history_limit" }}
     query_history_limit = {{ .query_history_limit }}
     {{- end }}
+    {{- if hasKey . "slow_queries_threshold" }}
+    slow_queries_threshold = {{ .slow_queries_threshold }}
+    {{- end }}
     {{- if hasKey . "autoreload" }}
     autoreload = {{ .autoreload | quote }}
     {{- end }}
@@ -206,6 +209,9 @@ data:
     {{- end }}
     {{- if hasKey . "server_connections" }}
     server_connections = {{ .server_connections }}
+    {{- end }}
+    {{- if hasKey . "slow_queries" }}
+    slow_queries = {{ .slow_queries }}
     {{- end }}
     {{- end }}
     {{- with .incident_io }}

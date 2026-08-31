@@ -32,6 +32,7 @@ control:
       process_notify_interval_secs: 30
       metrics_retention_secs: 600
       query_history_limit: 500
+      slow_queries_threshold: 2500
       autoreload: "immediately"
     autoscaling:
       pool_size: true
@@ -68,6 +69,7 @@ control:
         cpu: 90.0
         memory: 2048
         server_connections: 100
+        slow_queries: true
       incident_io:
         api_key: incident-token
     slack:
