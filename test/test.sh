@@ -15,6 +15,12 @@ for values_file in "$TEST_DIR"/values-*.yaml; do
 done
 
 echo ""
+echo "==> Verifying query alert settings..."
+full_render=$(helm template test-release "$CHART_DIR" -f "$TEST_DIR/values-full.yaml")
+grep -q '^    slow_queries_threshold = 2500$' <<< "$full_render"
+grep -q '^    slow_queries = true$' <<< "$full_render"
+
+echo ""
 echo "==> Verifying external Redis rendering..."
 external_render=$(helm template test-release "$CHART_DIR" -f "$TEST_DIR/values-redis-external.yaml")
 if grep -q 'app.kubernetes.io/component: redis' <<< "$external_render"; then
