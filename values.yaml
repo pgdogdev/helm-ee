@@ -5,6 +5,12 @@ image:
   pullPolicy: IfNotPresent
   pullSecrets: []
 
+# nodeSelector allows scheduling pods on nodes with specific labels
+nodeSelector: {}
+
+# tolerations allows pods to be scheduled on nodes with matching taints
+tolerations: []
+
 control:
   port: 8080
   aws:

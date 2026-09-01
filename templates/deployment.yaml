@@ -55,6 +55,14 @@ spec:
           matchLabels:
             {{- include "pgdog-control.selectorLabels" . | nindent 12 }}
       {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- if .Values.control.rbac.create }}
       serviceAccountName: {{ include "pgdog-control.control.serviceAccountName" . }}
       automountServiceAccountToken: true

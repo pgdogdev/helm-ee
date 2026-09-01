@@ -78,3 +78,12 @@ control:
     redis:
       url: redis://redis.example.com:6379
       save_interval_secs: 30
+
+nodeSelector:
+  node-type: database
+
+tolerations:
+  - key: dedicated
+    operator: Equal
+    value: database
+    effect: NoSchedule
