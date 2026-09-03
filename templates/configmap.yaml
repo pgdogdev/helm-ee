@@ -93,6 +93,9 @@ data:
     {{- if hasKey . "query_history_limit" }}
     query_history_limit = {{ .query_history_limit }}
     {{- end }}
+    {{- if hasKey . "query_plans_limit" }}
+    query_plans_limit = {{ .query_plans_limit }}
+    {{- end }}
     {{- if hasKey . "slow_queries_threshold" }}
     slow_queries_threshold = {{ .slow_queries_threshold }}
     {{- end }}

@@ -110,6 +110,7 @@ control:
       # process_notify_interval_secs: 60
       # metrics_retention_secs: 300
       # query_history_limit: 1000
+      # query_plans_limit: 100       # Set to 0 to disable query-plan storage.
       # slow_queries_threshold: 5000   # Minimum query duration in milliseconds.
       # autoreload: off
     autoscaling: {}
