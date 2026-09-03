@@ -32,6 +32,7 @@ control:
       process_notify_interval_secs: 30
       metrics_retention_secs: 600
       query_history_limit: 500
+      query_plans_limit: 75
       slow_queries_threshold: 2500
       autoreload: "immediately"
     autoscaling:

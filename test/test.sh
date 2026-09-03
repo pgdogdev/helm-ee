@@ -17,6 +17,7 @@ done
 echo ""
 echo "==> Verifying query alert settings..."
 full_render=$(helm template test-release "$CHART_DIR" -f "$TEST_DIR/values-full.yaml")
+grep -q '^    query_plans_limit = 75$' <<< "$full_render"
 grep -q '^    slow_queries_threshold = 2500$' <<< "$full_render"
 grep -q '^    slow_queries = true$' <<< "$full_render"
 
