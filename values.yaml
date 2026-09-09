@@ -11,6 +11,21 @@ nodeSelector: {}
 # tolerations allows pods to be scheduled on nodes with matching taints
 tolerations: []
 
+raft:
+  # Run three control pods with stable identities and durable Raft storage.
+  # Prefer separate machines, but allow pods to share a node when needed.
+  enabled: false
+  # Shared peer token. Empty generates a token retained in a Kubernetes Secret.
+  token: ""
+  # Empty defaults to the Helm release name.
+  cluster_name: ""
+  sequence_cache_size: 1000
+  persistence:
+    size: 1Gi
+    # Empty uses the cluster's default StorageClass; "-" disables dynamic provisioning.
+    storageClass: ""
+    mountPath: /var/lib/pgdog-control/raft
+
 control:
   port: 8080
   aws:
@@ -115,12 +130,6 @@ control:
       # autoreload: off
     autoscaling: {}
       # pool_size: false
-    leader: {}
-      # enabled: true
-      # lease_name: ""              # Empty means derive from Helm release.
-      # lease_duration_secs: 15
-      # renew_interval_secs: 5
-      # release_timeout_secs: 3
     helm: {}
       # chart: pgdog
       # repo: pgdogdev

@@ -51,6 +51,35 @@ the same cluster don't collide.
 {{- printf "%s-redis" .Release.Name | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
+{{/* Stable DNS service and token Secret for the Raft members. */}}
+{{- define "pgdog-control.raft.fullname" -}}
+{{- printf "%s-raft" .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- end }}
+
+{{/*
+Reuse the installed token on upgrades. Cache a newly generated token in the
+render context so the Secret, ConfigMap, and pod checksum all agree.
+*/}}
+{{- define "pgdog-control.raft.token" -}}
+{{- if .Values.raft.token -}}
+{{- if not (regexMatch "^[!-~]+$" .Values.raft.token) -}}
+{{- fail "raft.token must contain only non-whitespace printable ASCII characters" -}}
+{{- end -}}
+{{- .Values.raft.token -}}
+{{- else -}}
+{{- if not (hasKey .Values.raft "_generatedToken") -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace (include "pgdog-control.raft.fullname" .) | default dict -}}
+{{- $data := $existing.data | default dict -}}
+{{- $token := index $data "token" | default "" | b64dec -}}
+{{- if not $token -}}
+{{- $token = randAlphaNum 64 -}}
+{{- end -}}
+{{- $_ := set .Values.raft "_generatedToken" $token -}}
+{{- end -}}
+{{- .Values.raft._generatedToken -}}
+{{- end -}}
+{{- end }}
+
 {{/*
 Redis URL used by the control plane. redis.url is the public chart setting;
 control.config.redis.url remains supported for backwards compatibility.
