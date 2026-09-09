@@ -1,0 +1,19 @@
+{{- if .Values.raft.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pgdog-control.raft.fullname" . }}
+  labels:
+    {{- include "pgdog-control.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  # Peers must be discoverable while the cluster is starting or recovering.
+  publishNotReadyAddresses: true
+  ports:
+  - port: {{ .Values.control.port }}
+    targetPort: http
+    protocol: TCP
+    name: http
+  selector:
+    {{- include "pgdog-control.selectorLabels" . | nindent 4 }}
+{{- end }}

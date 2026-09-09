@@ -112,6 +112,20 @@ data:
     {{- end }}
     {{- end }}
 
+    {{- if .Values.raft.enabled }}
+
+    [raft]
+    token = {{ include "pgdog-control.raft.token" . | quote }}
+    storage_path = {{ printf "%s/raft.redb" (trimSuffix "/" .Values.raft.persistence.mountPath) | quote }}
+    cluster_name = {{ .Values.raft.cluster_name | quote }}
+    sequence_cache_size = {{ .Values.raft.sequence_cache_size }}
+    {{- range $id := until 3 }}
+
+    [[raft.members]]
+    id = {{ $id }}
+    address = {{ printf "http://%s-%d.%s.%s.svc:%v" (include "pgdog-control.control.fullname" $) $id (include "pgdog-control.raft.fullname" $) $.Release.Namespace $.Values.control.port | quote }}
+    {{- end }}
+    {{- else }}
     {{- with $config.leader }}
 
     [leader]
@@ -129,6 +143,7 @@ data:
     {{- end }}
     {{- with .release_timeout_secs }}
     release_timeout_secs = {{ . }}
+    {{- end }}
     {{- end }}
     {{- end }}
 

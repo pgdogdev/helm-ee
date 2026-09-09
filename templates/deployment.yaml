@@ -1,14 +1,35 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: {{ ternary "StatefulSet" "Deployment" .Values.raft.enabled }}
 metadata:
   name: {{ include "pgdog-control.control.fullname" . }}
   labels:
     {{- include "pgdog-control.labels" . | nindent 4 }}
 spec:
-  replicas: {{ .Values.control.replicas | default 1 }}
+  replicas: {{ ternary 3 (int (.Values.control.replicas | default 1)) .Values.raft.enabled }}
+  {{- if .Values.raft.enabled }}
+  serviceName: {{ include "pgdog-control.raft.fullname" . }}
+  # Start all members without waiting for an initial quorum to become ready.
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+  volumeClaimTemplates:
+  - metadata:
+      name: raft
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      {{- if eq .Values.raft.persistence.storageClass "-" }}
+      storageClassName: ""
+      {{- else if .Values.raft.persistence.storageClass }}
+      storageClassName: {{ .Values.raft.persistence.storageClass | quote }}
+      {{- end }}
+      resources:
+        requests:
+          storage: {{ .Values.raft.persistence.size | quote }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "pgdog-control.selectorLabels" . | nindent 6 }}
+  {{- if not .Values.raft.enabled }}
   # Readiness is leader-aware so only the elected control pod receives
   # Service traffic. New pods normally start as followers, so they do not
   # become Ready while the old leader still holds the Lease. Allowing the
@@ -20,12 +41,13 @@ spec:
     rollingUpdate:
       maxSurge: 0
       maxUnavailable: 100%
+  {{- end }}
   template:
     metadata:
       annotations:
         meta.helm.sh/release-name: {{ .Release.Name | quote }}
         meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
-        # Roll the deployment when any rendered config / secret content
+        # Roll the workload when any rendered config / secret content
         # changes. Each annotation hashes the *template output*, not
         # values directly, so transformations applied inside the
         # template (defaults, lookups, randAlphaNum on first install)
@@ -46,7 +68,17 @@ spec:
       labels:
         {{- include "pgdog-control.selectorLabels" . | nindent 8 }}
     spec:
-      {{- if gt (int (.Values.control.replicas | default 1)) 1 }}
+      {{- if .Values.raft.enabled }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  {{- include "pgdog-control.selectorLabels" . | nindent 18 }}
+      {{- else if gt (int (.Values.control.replicas | default 1)) 1 }}
       topologySpreadConstraints:
       - maxSkew: 1
         topologyKey: kubernetes.io/hostname
@@ -88,6 +120,13 @@ spec:
         env:
         - name: CONTROL_CONFIG
           value: /etc/pgdog-control/control.toml
+        {{- if .Values.raft.enabled }}
+        # control2 extracts the StatefulSet ordinal from the pod name.
+        - name: RAFT_NODE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        {{- end }}
         - name: HOME
           value: /var/lib/pgdog-control
         - name: XDG_CACHE_HOME
@@ -168,6 +207,10 @@ spec:
           readOnly: true
         - name: runtime
           mountPath: /var/lib/pgdog-control
+        {{- if .Values.raft.enabled }}
+        - name: raft
+          mountPath: {{ .Values.raft.persistence.mountPath | quote }}
+        {{- end }}
         - name: tmp
           mountPath: /tmp
         ports:

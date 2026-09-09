@@ -42,7 +42,7 @@ The PgDog deployment contains the following components:
 
 | Components | Description |
 |-|-|
-| Deployment | PgDog control plane deployment, with one replica. |
+| Deployment / StatefulSet | PgDog control plane deployment with one replica, or a three-replica StatefulSet when `raft.enabled` is true. |
 | Service | Service pointing to the deployment. Selector labels are configured automatically. |
 | Ingress / HTTPRoute | Four (4) routing modes are supported: Nginx, AWS ALB, Gateway API, and Default. See [ingress](#ingress) for more details. |
 | ConfigMap | Configuration for the control plane. |
@@ -76,6 +76,44 @@ redis:
 | `redis.image.tag` | Redis image tag (string, default `7-alpine`). |
 | `redis.image.pullPolicy` | Redis image pull policy (string, default `IfNotPresent`). |
 | `redis.image.pullSecrets` | Image pull secrets attached to the Redis pod (list, default `[]`). |
+
+### Raft
+
+Enable Raft with a top-level setting:
+
+```yaml
+raft:
+  enabled: true
+```
+
+Use a control image containing the Raft implementation. Enabling Raft replaces the
+control Deployment with a StatefulSet of exactly three replicas, regardless of
+`control.replicas`. Preferred pod anti-affinity spreads the replicas across
+machines using `kubernetes.io/hostname` when possible. Replicas can share a node,
+so single-node clusters such as Minikube are supported. No zone separation is
+required. The top-level `nodeSelector` and `tolerations` still apply.
+
+Each replica gets its own ReadWriteOnce PVC mounted at
+`/var/lib/pgdog-control/raft`. The generated `[raft]` section sets `storage_path`
+to `/var/lib/pgdog-control/raft/raft.redb`. Claims are retained when the StatefulSet
+is deleted. The chart supplies node IDs from pod names, three stable peer addresses
+through a headless Service, and peer ingress/egress rules when NetworkPolicy is
+enabled. Pods start in parallel and update one at a time.
+
+| Option | Description |
+|-|-|
+| `raft.enabled` | Enable the three-member Raft StatefulSet (default `false`). |
+| `raft.token` | Shared peer token. Empty generates a token stored in `<release>-raft` Secret and reused by Helm on upgrades. The token is also written to `control.toml` in the ConfigMap. For offline/GitOps rendering, supply a stable token explicitly (default `""`). |
+| `raft.cluster_name` | Raft cluster name (default `control2`). |
+| `raft.sequence_cache_size` | Positive number of sequence values reserved per Raft write (default `1000`). |
+| `raft.persistence.size` | Storage requested by each of the three PVCs (default `1Gi`). |
+| `raft.persistence.storageClass` | StorageClass for each PVC. Empty uses the cluster default; `"-"` selects no StorageClass (default `""`). |
+| `raft.persistence.mountPath` | PVC mount directory; `storage_path` is this directory plus `/raft.redb` (default `/var/lib/pgdog-control/raft`). |
+
+Raft configuration is omitted when disabled, preserving the existing Deployment.
+Legacy `control.config.leader` settings are omitted when Raft is enabled. Switching
+an existing release to Raft replaces its control workload and can interrupt service
+while the new pods and volumes start.
 
 ### Ingress
 
