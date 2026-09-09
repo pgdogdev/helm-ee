@@ -30,12 +30,6 @@ spec:
     matchLabels:
       {{- include "pgdog-control.selectorLabels" . | nindent 6 }}
   {{- if not .Values.raft.enabled }}
-  # Readiness is leader-aware so only the elected control pod receives
-  # Service traffic. New pods normally start as followers, so they do not
-  # become Ready while the old leader still holds the Lease. Allowing the
-  # whole old ReplicaSet to be unavailable lets Kubernetes terminate the
-  # old leader, release the Lease, and promote a new-version pod instead
-  # of waiting forever for a follower to become Ready.
   strategy:
     type: RollingUpdate
     rollingUpdate:

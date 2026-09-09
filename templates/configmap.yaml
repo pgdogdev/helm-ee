@@ -125,26 +125,6 @@ data:
     id = {{ $id }}
     address = {{ printf "http://%s-%d.%s.%s.svc:%v" (include "pgdog-control.control.fullname" $) $id (include "pgdog-control.raft.fullname" $) $.Release.Namespace $.Values.control.port | quote }}
     {{- end }}
-    {{- else }}
-    {{- with $config.leader }}
-
-    [leader]
-    {{- if hasKey . "enabled" }}
-    enabled = {{ .enabled }}
-    {{- end }}
-    {{- with .lease_name }}
-    lease_name = {{ . | quote }}
-    {{- end }}
-    {{- with .lease_duration_secs }}
-    lease_duration_secs = {{ . }}
-    {{- end }}
-    {{- with .renew_interval_secs }}
-    renew_interval_secs = {{ . }}
-    {{- end }}
-    {{- with .release_timeout_secs }}
-    release_timeout_secs = {{ . }}
-    {{- end }}
-    {{- end }}
     {{- end }}
 
     {{- with $config.helm }}
