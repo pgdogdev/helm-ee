@@ -40,22 +40,22 @@ This chart installs the PgDog control plane and, by default, a Redis instance.
 
 The PgDog deployment contains the following components:
 
-| Components | Description |
-|-|-|
-| Deployment / StatefulSet | PgDog control plane deployment with one replica, or a three-replica StatefulSet when `raft.enabled` is true. |
-| Service | Service pointing to the deployment. Selector labels are configured automatically. |
-| Ingress / HTTPRoute | Four (4) routing modes are supported: Nginx, AWS ALB, Gateway API, and Default. See [ingress](#ingress) for more details. |
-| ConfigMap | Configuration for the control plane. |
-| Secret | Secret that stores the key used to encrypt authentication cookies. |
-| Service account, Cluster role, Cluster role bindings | Service account with RBAC to access select Kube APIs. See [RBAC](#rbac) for more details. |
-| NetworkPolicy | Optional; restricts ingress/egress traffic. See [NetworkPolicy](#networkpolicy) for more details. |
+| Components                                           | Description                                                                                                               |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Deployment / StatefulSet                             | PgDog control plane deployment with one replica, or a three-replica StatefulSet when `raft.enabled` is true.              |
+| Service                                              | Service pointing to the deployment. Selector labels are configured automatically.                                         |
+| Ingress / HTTPRoute                                  | Four (4) routing modes are supported: Nginx, AWS ALB, Gateway API, and Default. See [ingress](#ingress) for more details. |
+| ConfigMap                                            | Configuration for the control plane.                                                                                      |
+| Secret                                               | Secret that stores the key used to encrypt authentication cookies.                                                        |
+| Service account, Cluster role, Cluster role bindings | Service account with RBAC to access select Kube APIs. See [RBAC](#rbac) for more details.                                 |
+| NetworkPolicy                                        | Optional; restricts ingress/egress traffic. See [NetworkPolicy](#networkpolicy) for more details.                         |
 
 By default, the chart also deploys a single-replica Redis instance. The control plane uses Redis for storing metrics. Set `redis.enabled: false` and provide `redis.url` to use an external Redis instead. The chart-managed Redis has the following components:
 
-| Components | Description |
-|-|-|
-| Deployment | Redis deployment with one replica. |
-| Service | Redis service pointing to the deployment, with selector labels configured automatically. |
+| Components | Description                                                                              |
+| ---------- | ---------------------------------------------------------------------------------------- |
+| Deployment | Redis deployment with one replica.                                                       |
+| Service    | Redis service pointing to the deployment, with selector labels configured automatically. |
 
 ```yaml
 redis:
@@ -68,14 +68,14 @@ redis:
     pullSecrets: []
 ```
 
-| Option | Description |
-|-|-|
-| `redis.enabled` | Deploy the chart-managed Redis resources (bool, default `true`). |
-| `redis.url` | Redis connection string written to `[redis].url` in `control.toml`. When empty, defaults to the chart-managed Redis Service (string, default `""`). |
-| `redis.image.repository` | Redis image repository (string, default `redis`). |
-| `redis.image.tag` | Redis image tag (string, default `7-alpine`). |
-| `redis.image.pullPolicy` | Redis image pull policy (string, default `IfNotPresent`). |
-| `redis.image.pullSecrets` | Image pull secrets attached to the Redis pod (list, default `[]`). |
+| Option                    | Description                                                                                                                                         |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `redis.enabled`           | Deploy the chart-managed Redis resources (bool, default `true`).                                                                                    |
+| `redis.url`               | Redis connection string written to `[redis].url` in `control.toml`. When empty, defaults to the chart-managed Redis Service (string, default `""`). |
+| `redis.image.repository`  | Redis image repository (string, default `redis`).                                                                                                   |
+| `redis.image.tag`         | Redis image tag (string, default `7-alpine`).                                                                                                       |
+| `redis.image.pullPolicy`  | Redis image pull policy (string, default `IfNotPresent`).                                                                                           |
+| `redis.image.pullSecrets` | Image pull secrets attached to the Redis pod (list, default `[]`).                                                                                  |
 
 ### Raft
 
@@ -86,29 +86,30 @@ raft:
   enabled: true
 ```
 
-Use a control image containing the Raft implementation. Enabling Raft replaces the
-control Deployment with a StatefulSet of exactly three replicas, regardless of
+Enabling Raft replaces the control `Deployment` with a `StatefulSet` of exactly 3 replicas, regardless of
 `control.replicas`. Preferred pod anti-affinity spreads the replicas across
-machines using `kubernetes.io/hostname` when possible. Replicas can share a node,
-so single-node clusters such as Minikube are supported. No zone separation is
-required. The top-level `nodeSelector` and `tolerations` still apply.
+machines using `kubernetes.io/hostname`, when possible.
+
+The top-level `nodeSelector` and `tolerations` still apply.
 
 Each replica gets its own ReadWriteOnce PVC mounted at
 `/var/lib/pgdog-control/raft`. The generated `[raft]` section sets `storage_path`
 to `/var/lib/pgdog-control/raft/raft.redb`. Claims are retained when the StatefulSet
 is deleted. The chart supplies node IDs from pod names, three stable peer addresses
 through a headless Service, and peer ingress/egress rules when NetworkPolicy is
-enabled. Pods start in parallel and update one at a time.
+enabled.
 
-| Option | Description |
-|-|-|
-| `raft.enabled` | Enable the three-member Raft StatefulSet (default `false`). |
-| `raft.token` | Shared peer token. Empty generates a token stored in `<release>-raft` Secret and reused by Helm on upgrades. The token is also written to `control.toml` in the ConfigMap. For offline/GitOps rendering, supply a stable token explicitly (default `""`). |
-| `raft.cluster_name` | Raft cluster name (default `control2`). |
-| `raft.sequence_cache_size` | Positive number of sequence values reserved per Raft write (default `1000`). |
-| `raft.persistence.size` | Storage requested by each of the three PVCs (default `1Gi`). |
-| `raft.persistence.storageClass` | StorageClass for each PVC. Empty uses the cluster default; `"-"` selects no StorageClass (default `""`). |
-| `raft.persistence.mountPath` | PVC mount directory; `storage_path` is this directory plus `/raft.redb` (default `/var/lib/pgdog-control/raft`). |
+Pods start in parallel and update one at a time.
+
+| Option                          | Description                                                                                                                                                                                                                                               |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `raft.enabled`                  | Enable the three-member Raft StatefulSet (default `false`).                                                                                                                                                                                               |
+| `raft.token`                    | Shared peer token. Empty generates a token stored in `<release>-raft` Secret and reused by Helm on upgrades. The token is also written to `control.toml` in the ConfigMap. For offline/GitOps rendering, supply a stable token explicitly (default `""`). |
+| `raft.cluster_name`             | Raft cluster name (default `control2`).                                                                                                                                                                                                                   |
+| `raft.sequence_cache_size`      | Positive number of sequence values reserved per Raft write (default `1000`).                                                                                                                                                                              |
+| `raft.persistence.size`         | Storage requested by each of the three PVCs (default `1Gi`).                                                                                                                                                                                              |
+| `raft.persistence.storageClass` | StorageClass for each PVC. Empty uses the cluster default; `"-"` selects no StorageClass (default `""`).                                                                                                                                                  |
+| `raft.persistence.mountPath`    | PVC mount directory; `storage_path` is this directory plus `/raft.redb` (default `/var/lib/pgdog-control/raft`).                                                                                                                                          |
 
 Raft configuration is omitted when disabled, preserving the existing Deployment.
 Legacy `control.config.leader` settings are omitted when Raft is enabled. Switching
@@ -130,12 +131,12 @@ The mode is selected by `ingress.mode`. In `nginx`, `aws`, and `default` modes, 
 
 All three modes share the options below:
 
-| Option | Description |
-|-|-|
-| `ingress.enabled` | Enable/disable the Ingress (bool, default `true`). |
-| `ingress.mode` | One of `nginx`, `aws`, `gateway`, or `default`. Defaults to `nginx`. |
-| `ingress.host` | External hostname, e.g. pgdog.acme.com. Required for Nginx and AWS ALB; optional for Default. |
-| `ingress.labels` | Extra `metadata.labels` merged on top of the chart's standard labels (map, default `{}`). |
+| Option            | Description                                                                                   |
+| ----------------- | --------------------------------------------------------------------------------------------- |
+| `ingress.enabled` | Enable/disable the Ingress (bool, default `true`).                                            |
+| `ingress.mode`    | One of `nginx`, `aws`, `gateway`, or `default`. Defaults to `nginx`.                          |
+| `ingress.host`    | External hostname, e.g. pgdog.acme.com. Required for Nginx and AWS ALB; optional for Default. |
+| `ingress.labels`  | Extra `metadata.labels` merged on top of the chart's standard labels (map, default `{}`).     |
 
 #### Nginx
 
@@ -153,11 +154,11 @@ ingress:
     sslRedirect: "true"
 ```
 
-| Option | Description |
-|-|-|
-| `ingress.nginx.tls.enabled` | When `true`, emits the cert-manager and ssl-redirect annotations and a `tls` block referencing `<release>-control-tls` (bool, default `true`). |
-| `ingress.nginx.clusterIssuer` | Value of the `cert-manager.io/cluster-issuer` annotation (string, default `letsencrypt-prod`). |
-| `ingress.nginx.sslRedirect` | Value of the `nginx.ingress.kubernetes.io/ssl-redirect` annotation. Quoted because nginx expects a string (string, default `"true"`). |
+| Option                        | Description                                                                                                                                    |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ingress.nginx.tls.enabled`   | When `true`, emits the cert-manager and ssl-redirect annotations and a `tls` block referencing `<release>-control-tls` (bool, default `true`). |
+| `ingress.nginx.clusterIssuer` | Value of the `cert-manager.io/cluster-issuer` annotation (string, default `letsencrypt-prod`).                                                 |
+| `ingress.nginx.sslRedirect`   | Value of the `nginx.ingress.kubernetes.io/ssl-redirect` annotation. Quoted because nginx expects a string (string, default `"true"`).          |
 
 ##### Finding an existing ClusterIssuer
 
@@ -259,12 +260,12 @@ ingress:
     sslRedirect: true
 ```
 
-| Option | Description |
-|-|-|
-| `ingress.aws.scheme` | `alb.ingress.kubernetes.io/scheme`. Either `internet-facing` or `internal` (string, default `internet-facing`). |
-| `ingress.aws.subnets` | Optional comma-separated subnet IDs rendered as `alb.ingress.kubernetes.io/subnets`. Empty = controller auto-discovers subnets from AWS tags (string, default `""`). |
-| `ingress.aws.certificateArn` | ACM cert ARN attached to the HTTPS listener. Empty = HTTP-only ALB, no 443 listener (string, default `""`). |
-| `ingress.aws.sslRedirect` | When `true` and `certificateArn` is set, the ALB redirects HTTP:80 → HTTPS:443. Ignored when `certificateArn` is empty (bool, default `true`). |
+| Option                       | Description                                                                                                                                                          |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ingress.aws.scheme`         | `alb.ingress.kubernetes.io/scheme`. Either `internet-facing` or `internal` (string, default `internet-facing`).                                                      |
+| `ingress.aws.subnets`        | Optional comma-separated subnet IDs rendered as `alb.ingress.kubernetes.io/subnets`. Empty = controller auto-discovers subnets from AWS tags (string, default `""`). |
+| `ingress.aws.certificateArn` | ACM cert ARN attached to the HTTPS listener. Empty = HTTP-only ALB, no 443 listener (string, default `""`).                                                          |
+| `ingress.aws.sslRedirect`    | When `true` and `certificateArn` is set, the ALB redirects HTTP:80 → HTTPS:443. Ignored when `certificateArn` is empty (bool, default `true`).                       |
 
 #### Gateway API
 
@@ -281,10 +282,10 @@ ingress:
     sectionName: web
 ```
 
-| Option | Description |
-|-|-|
-| `ingress.gateway.name` | Name of the Gateway resource the HTTPRoute attaches to (string, required). |
-| `ingress.gateway.namespace` | Namespace of the Gateway resource (string, required). |
+| Option                        | Description                                                                                                                    |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `ingress.gateway.name`        | Name of the Gateway resource the HTTPRoute attaches to (string, required).                                                     |
+| `ingress.gateway.namespace`   | Namespace of the Gateway resource (string, required).                                                                          |
 | `ingress.gateway.sectionName` | Selects a specific listener on the Gateway. Leave empty to attach to all listeners that match the hostname (string, optional). |
 
 The chart does not create or manage the Gateway itself; that's expected to exist already. The HTTPRoute routes all paths (`/`) to the control Service on port 80, scoped to the hostname in `ingress.host`. TLS, certificates, and load balancer configuration are handled by the Gateway and its associated resources.
@@ -307,11 +308,11 @@ ingress:
       secretName: control-tls
 ```
 
-| Option | Description |
-|-|-|
-| `ingress.ingressClassName` | Rendered as `spec.ingressClassName` when non-empty (string, default `""`). |
-| `ingress.annotations` | Rendered verbatim as `metadata.annotations` (map, default `{}`). |
-| `ingress.tls` | Rendered verbatim under `spec.tls`. Supply the full `[{hosts, secretName}]` list (list, default `[]`). |
+| Option                     | Description                                                                                            |
+| -------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `ingress.ingressClassName` | Rendered as `spec.ingressClassName` when non-empty (string, default `""`).                             |
+| `ingress.annotations`      | Rendered verbatim as `metadata.annotations` (map, default `{}`).                                       |
+| `ingress.tls`              | Rendered verbatim under `spec.tls`. Supply the full `[{hosts, secretName}]` list (list, default `[]`). |
 
 ### DNS
 
@@ -341,11 +342,11 @@ control:
 
 In the above example, the dashboard can see workloads in every namespace, but it can only spin up or tear down PgDog deployments in `pgdog-prod` and `pgdog-staging`. Leaving `writeNamespaces` empty produces a fully read-only install. The dashboard still works, but the "deploy" actions will be rejected by the API server.
 
-| Option | Description |
-|-|-|
-| `control.rbac.create` | Render the ServiceAccount and the RBAC bindings. When `false`, no RBAC is rendered and the pod runs without a mounted API token. The Kubernetes views in the dashboard will be empty (bool, default `true`). |
-| `control.rbac.serviceAccountName` | Override the generated ServiceAccount name. Empty falls back to `<release>-control` (string, default `""`). |
-| `control.rbac.writeNamespaces` | Namespaces where the control plane is allowed to manage PgDog workloads. Each entry produces one Role + RoleBinding pair. Empty means the install is read-only everywhere (list, default `[]`). |
+| Option                            | Description                                                                                                                                                                                                  |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `control.rbac.create`             | Render the ServiceAccount and the RBAC bindings. When `false`, no RBAC is rendered and the pod runs without a mounted API token. The Kubernetes views in the dashboard will be empty (bool, default `true`). |
+| `control.rbac.serviceAccountName` | Override the generated ServiceAccount name. Empty falls back to `<release>-control` (string, default `""`).                                                                                                  |
+| `control.rbac.writeNamespaces`    | Namespaces where the control plane is allowed to manage PgDog workloads. Each entry produces one Role + RoleBinding pair. Empty means the install is read-only everywhere (list, default `[]`).              |
 
 ### Disabling RBAC
 
@@ -377,9 +378,9 @@ networkPolicy:
           port: 8080
 ```
 
-| Option | Description |
-|-|-|
-| `networkPolicy.enabled` | Render the control and, when enabled, Redis `NetworkPolicy` resources (bool, default `false`). |
+| Option                       | Description                                                                                                                                                                                                                                          |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `networkPolicy.enabled`      | Render the control and, when enabled, Redis `NetworkPolicy` resources (bool, default `false`).                                                                                                                                                       |
 | `networkPolicy.extraIngress` | Additional ingress rules appended to the control `NetworkPolicy`, on top of the built-in ingress-nginx rule. Each entry follows the standard `NetworkPolicyIngressRule` schema (`from`/`ports`) and is passed through verbatim (list, default `[]`). |
 
 ## AWS access (EKS / IRSA)
@@ -503,9 +504,7 @@ The control plane only reads from AWS. It never creates, modifies, or deletes an
     {
       "Sid": "EC2InstanceTypes",
       "Effect": "Allow",
-      "Action": [
-        "ec2:DescribeInstanceTypes"
-      ],
+      "Action": ["ec2:DescribeInstanceTypes"],
       "Resource": "*"
     },
     {
@@ -539,11 +538,11 @@ control:
 
 `region` is emitted as `AWS_REGION` on the container and is required unless the pod runs on a node whose IMDS already exposes one. For clusters without IRSA (kind, minikube, a non-EKS managed cluster), set `control.aws.accessKeyId` / `secretAccessKey` instead. The chart will render a `<release>-aws-creds` Secret and load it via `envFrom`. Don't do this on EKS; IRSA is strictly better.
 
-| Option | Description |
-|-|-|
-| `control.aws.roleArn` | IAM role ARN. When non-empty, annotates the ServiceAccount with `eks.amazonaws.com/role-arn` so the EKS pod-identity webhook can inject `AWS_ROLE_ARN` and `AWS_WEB_IDENTITY_TOKEN_FILE` (string, default `""`). |
-| `control.aws.region` | AWS region the SDK targets. Rendered as `AWS_REGION` on the container (string, default `""`). |
-| `control.aws.accessKeyId` / `secretAccessKey` / `sessionToken` | Static IAM-user credentials. Only for non-EKS clusters. Don't set these alongside `roleArn`; pick one (string, default `""`). |
+| Option                                                         | Description                                                                                                                                                                                                      |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `control.aws.roleArn`                                          | IAM role ARN. When non-empty, annotates the ServiceAccount with `eks.amazonaws.com/role-arn` so the EKS pod-identity webhook can inject `AWS_ROLE_ARN` and `AWS_WEB_IDENTITY_TOKEN_FILE` (string, default `""`). |
+| `control.aws.region`                                           | AWS region the SDK targets. Rendered as `AWS_REGION` on the container (string, default `""`).                                                                                                                    |
+| `control.aws.accessKeyId` / `secretAccessKey` / `sessionToken` | Static IAM-user credentials. Only for non-EKS clusters. Don't set these alongside `roleArn`; pick one (string, default `""`).                                                                                    |
 
 ## Configuration
 
@@ -573,9 +572,9 @@ control:
 
 If `allowed_cidrs` is omitted, the control plane defaults to private IPv4 ranges, IPv4/IPv6 loopback, and IPv6 ULA. The check intentionally uses the direct TCP peer address and ignores forwarded headers such as `X-Forwarded-For`; configure the CIDRs for the address the control plane actually sees from your ingress, load balancer, sidecar, or PgDog caller.
 
-| Option | Description |
-|-|-|
-| `api.pgdog.ip_allowlist.enabled` | Enables source-IP checks for `/api/v2/*` PgDog endpoints (bool, default `false`). |
+| Option                                 | Description                                                                                                                                                                                      |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `api.pgdog.ip_allowlist.enabled`       | Enables source-IP checks for `/api/v2/*` PgDog endpoints (bool, default `false`).                                                                                                                |
 | `api.pgdog.ip_allowlist.allowed_cidrs` | CIDR ranges allowed to call `/api/v2/*`. Invalid CIDRs cause protected requests to be rejected until the config is fixed (list of strings, default private IPv4 ranges, loopback, and IPv6 ULA). |
 
 ### Authentication
@@ -599,17 +598,17 @@ control:
         allowed_domains: [acme.com]
 ```
 
-| Option | Description |
-|-|-|
-| `redirect_base_url` | Public base URL of the dashboard. Used to build the OAuth redirect URI registered with each provider, e.g. `https://control.acme.com/auth/github/callback`. Defaults to `http://localhost:8080` (string, optional). |
-| `cookie_secret` | Master key used to sign the session and CSRF cookies. **Leave empty in production.** The chart generates a random 64-character key on first install and stores it in a `<release>-secrets` Secret, then reuses it on every `helm upgrade` via a `lookup` call so sessions survive rollouts. Setting this explicitly disables the helper Secret (string, optional). |
-| `cookie_secure` | Set the `Secure` flag on cookies. Disable only for local HTTP testing (bool, default `true`). |
-| `session_max_age_days` | Lifetime of the signed session cookie (int, default `30`). |
-| `state_max_age_min` | Lifetime of the per-request CSRF state cookie. Has to outlive the user clicking through the provider's consent screen (int, default `10`). |
-| `github.client_id` / `github.client_secret` | OAuth credentials from the GitHub App. Required to enable the GitHub login route. |
-| `github.allowed_orgs` | If non-empty, only users whose membership the GitHub API reports in one of these orgs are allowed to log in. The `read:org` scope is added automatically when this list is non-empty (list of strings, default `[]`). |
-| `google.client_id` / `google.client_secret` | OAuth credentials from the Google Cloud OAuth client. Required to enable the Google login route. |
-| `google.allowed_domains` | If non-empty, only users whose verified Google email's domain (the part after `@`, compared case-insensitively) appears in this list are allowed to log in (list of strings, default `[]`). |
+| Option                                      | Description                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `redirect_base_url`                         | Public base URL of the dashboard. Used to build the OAuth redirect URI registered with each provider, e.g. `https://control.acme.com/auth/github/callback`. Defaults to `http://localhost:8080` (string, optional).                                                                                                                                                |
+| `cookie_secret`                             | Master key used to sign the session and CSRF cookies. **Leave empty in production.** The chart generates a random 64-character key on first install and stores it in a `<release>-secrets` Secret, then reuses it on every `helm upgrade` via a `lookup` call so sessions survive rollouts. Setting this explicitly disables the helper Secret (string, optional). |
+| `cookie_secure`                             | Set the `Secure` flag on cookies. Disable only for local HTTP testing (bool, default `true`).                                                                                                                                                                                                                                                                      |
+| `session_max_age_days`                      | Lifetime of the signed session cookie (int, default `30`).                                                                                                                                                                                                                                                                                                         |
+| `state_max_age_min`                         | Lifetime of the per-request CSRF state cookie. Has to outlive the user clicking through the provider's consent screen (int, default `10`).                                                                                                                                                                                                                         |
+| `github.client_id` / `github.client_secret` | OAuth credentials from the GitHub App. Required to enable the GitHub login route.                                                                                                                                                                                                                                                                                  |
+| `github.allowed_orgs`                       | If non-empty, only users whose membership the GitHub API reports in one of these orgs are allowed to log in. The `read:org` scope is added automatically when this list is non-empty (list of strings, default `[]`).                                                                                                                                              |
+| `google.client_id` / `google.client_secret` | OAuth credentials from the Google Cloud OAuth client. Required to enable the Google login route.                                                                                                                                                                                                                                                                   |
+| `google.allowed_domains`                    | If non-empty, only users whose verified Google email's domain (the part after `@`, compared case-insensitively) appears in this list are allowed to log in (list of strings, default `[]`).                                                                                                                                                                        |
 
 #### Sourcing OAuth credentials from a Secret
 
@@ -627,7 +626,7 @@ control:
     auth:
       redirect_base_url: https://control.acme.com
       github:
-        client_id: Iv1.0123456789abcdef   # not sensitive — fine to inline
+        client_id: Iv1.0123456789abcdef # not sensitive — fine to inline
         allowed_orgs: [acme-corp]
         secret:
           name: oauth-secrets
@@ -640,10 +639,10 @@ control:
           clientSecretKey: google-client-secret
 ```
 
-| Option | Description |
-|-|-|
-| `<provider>.secret.name` | Name of an existing `Secret` in the release namespace holding the credentials. Required when either key below is set (string, optional). |
-| `<provider>.secret.clientIdKey` | Key in that Secret to inject as `GITHUB_CLIENT_ID` / `GOOGLE_CLIENT_ID`. Leave `client_id` unset when this is set (string, optional). |
+| Option                              | Description                                                                                                                                       |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<provider>.secret.name`            | Name of an existing `Secret` in the release namespace holding the credentials. Required when either key below is set (string, optional).          |
+| `<provider>.secret.clientIdKey`     | Key in that Secret to inject as `GITHUB_CLIENT_ID` / `GOOGLE_CLIENT_ID`. Leave `client_id` unset when this is set (string, optional).             |
 | `<provider>.secret.clientSecretKey` | Key in that Secret to inject as `GITHUB_CLIENT_SECRET` / `GOOGLE_CLIENT_SECRET`. Leave `client_secret` unset when this is set (string, optional). |
 
 The provider's `[auth.<provider>]` section still has to render for the login route to be enabled, so keep at least one inline field (`client_id`, `allowed_orgs`/`allowed_domains`) or the `secret` block set under the provider. Env vars sourced this way are not hashed into the deployment's `checksum/config` annotation — rotating the referenced Secret needs a manual `kubectl rollout restart deployment/<release>-control`.
@@ -661,10 +660,10 @@ control:
       repo_url: https://helm.pgdog.dev
 ```
 
-| Option | Description |
-|-|-|
-| `chart` | Chart name within the repo. The control plane installs `{repo}/{chart}` (string, default `pgdog`). |
-| `repo` | Locally-registered repo name. Used both as the prefix in the chart reference and as the name passed to `helm repo add` (string, default `pgdogdev`). |
+| Option     | Description                                                                                                                                                                                         |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `chart`    | Chart name within the repo. The control plane installs `{repo}/{chart}` (string, default `pgdog`).                                                                                                  |
+| `repo`     | Locally-registered repo name. Used both as the prefix in the chart reference and as the name passed to `helm repo add` (string, default `pgdogdev`).                                                |
 | `repo_url` | Repo index URL. This is what `helm repo add <repo> <repo_url>` is pointed at on boot, so the dashboard doesn't need an out-of-band `helm repo add` step (string, default `https://helm.pgdog.dev`). |
 
 ### Background polling
@@ -688,15 +687,15 @@ control:
       period_secs: 60
 ```
 
-| Option | Description |
-|-|-|
-| `rds.refresh_interval_secs` | How often to poll AWS RDS for cluster and instance topology (int, default `60`). |
-| `rds.autodiscovery` | **Experimental. Do not enable in production yet.** Automatically reconcile Helm-managed PgDog database entries from discovered RDS topology (bool, default `false`). |
-| `kube.refresh_interval_secs` | How often to poll Kubernetes for PgDog workloads. Independent of the `watch` streams, which fire on events (int, default `15`). |
-| `dns.refresh_interval_secs` | How often to re-resolve every known RDS hostname (int, default `30`). |
-| `cloudwatch.refresh_interval_secs` | How often to poll CloudWatch for per-instance metrics (int, default `60`). |
-| `cloudwatch.lookback_secs` | How far back each fetch reaches. A fresh deploy pulls the full window on its first tick (int, default `3600`). |
-| `cloudwatch.period_secs` | CloudWatch aggregation period. The smallest bucket the metric API returns (int, default `60`). |
+| Option                             | Description                                                                                                                                                          |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rds.refresh_interval_secs`        | How often to poll AWS RDS for cluster and instance topology (int, default `60`).                                                                                     |
+| `rds.autodiscovery`                | **Experimental. Do not enable in production yet.** Automatically reconcile Helm-managed PgDog database entries from discovered RDS topology (bool, default `false`). |
+| `kube.refresh_interval_secs`       | How often to poll Kubernetes for PgDog workloads. Independent of the `watch` streams, which fire on events (int, default `15`).                                      |
+| `dns.refresh_interval_secs`        | How often to re-resolve every known RDS hostname (int, default `30`).                                                                                                |
+| `cloudwatch.refresh_interval_secs` | How often to poll CloudWatch for per-instance metrics (int, default `60`).                                                                                           |
+| `cloudwatch.lookback_secs`         | How far back each fetch reaches. A fresh deploy pulls the full window on its first tick (int, default `3600`).                                                       |
+| `cloudwatch.period_secs`           | CloudWatch aggregation period. The smallest bucket the metric API returns (int, default `60`).                                                                       |
 
 ### Alerting
 
@@ -717,15 +716,15 @@ control:
         api_key: inc_live_xxx
 ```
 
-| Option | Description |
-|-|-|
-| `evaluation_window_secs` | How long metrics must remain at or above threshold before creating an alert (int, default `300`). |
-| `thresholds.clients_waiting` | Number of clients waiting on a server connection (int, optional). |
-| `thresholds.cpu` | CPU usage percentage. Must be between `0.0` and `100.0`, inclusive (float, optional). |
-| `thresholds.memory` | Memory used, in megabytes (int, optional). |
-| `thresholds.server_connections` | Number of open server connections (int, optional). |
-| `thresholds.slow_queries` | Create incidents for queries whose duration reaches `store.slow_queries_threshold` (bool, default `false`). |
-| `incident_io.api_key` | incident.io API key with permission to create incidents. Missing `incident_io` disables the integration (string, optional). |
+| Option                          | Description                                                                                                                 |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `evaluation_window_secs`        | How long metrics must remain at or above threshold before creating an alert (int, default `300`).                           |
+| `thresholds.clients_waiting`    | Number of clients waiting on a server connection (int, optional).                                                           |
+| `thresholds.cpu`                | CPU usage percentage. Must be between `0.0` and `100.0`, inclusive (float, optional).                                       |
+| `thresholds.memory`             | Memory used, in megabytes (int, optional).                                                                                  |
+| `thresholds.server_connections` | Number of open server connections (int, optional).                                                                          |
+| `thresholds.slow_queries`       | Create incidents for queries whose duration reaches `store.slow_queries_threshold` (bool, default `false`).                 |
+| `incident_io.api_key`           | incident.io API key with permission to create incidents. Missing `incident_io` disables the integration (string, optional). |
 
 ### State store
 
@@ -745,16 +744,16 @@ control:
       autoreload: immediately # or in_sync, or off
 ```
 
-| Option | Description |
-|-|-|
-| `tick_secs` | How often the sweep task wakes up. Sets the shortest possible reaction time for stale and evict transitions (int, default `1`). |
-| `stale_after_secs` | Instance is marked stale if its newest metric is older than this. The UI dims it but keeps it visible (int, default `5`). |
-| `evict_after_secs` | Instance is dropped from the store entirely if its newest metric is older than this (int, default `60`). |
-| `metrics_retention_secs` | How much per-instance metric history is kept in memory. Older points are dropped as new ones arrive (int, default `300`). |
-| `query_history_limit` | Per-token historical query store capacity. Oldest deduped query entries are evicted first once the limit is reached (int, default `1000`). |
-| `query_plans_limit` | Per-token query-plan capacity. Plans with the oldest creation time are evicted first once the limit is reached; `0` disables plan storage (int, default `100`). |
-| `slow_queries_threshold` | Minimum query duration, in milliseconds, for classifying a query as slow (int, default `5000`). |
-| `autoreload` | Automatically enqueue `reload_configuration` for instances that report config drift (enum, default `off`, available options: `off`, `immediately`, `in_sync`). |
+| Option                   | Description                                                                                                                                                     |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tick_secs`              | How often the sweep task wakes up. Sets the shortest possible reaction time for stale and evict transitions (int, default `1`).                                 |
+| `stale_after_secs`       | Instance is marked stale if its newest metric is older than this. The UI dims it but keeps it visible (int, default `5`).                                       |
+| `evict_after_secs`       | Instance is dropped from the store entirely if its newest metric is older than this (int, default `60`).                                                        |
+| `metrics_retention_secs` | How much per-instance metric history is kept in memory. Older points are dropped as new ones arrive (int, default `300`).                                       |
+| `query_history_limit`    | Per-token historical query store capacity. Oldest deduped query entries are evicted first once the limit is reached (int, default `1000`).                      |
+| `query_plans_limit`      | Per-token query-plan capacity. Plans with the oldest creation time are evicted first once the limit is reached; `0` disables plan storage (int, default `100`). |
+| `slow_queries_threshold` | Minimum query duration, in milliseconds, for classifying a query as slow (int, default `5000`).                                                                 |
+| `autoreload`             | Automatically enqueue `reload_configuration` for instances that report config drift (enum, default `off`, available options: `off`, `immediately`, `in_sync`).  |
 
 ### Slack Notifications
 
@@ -768,10 +767,10 @@ control:
       channel: C0123456789
 ```
 
-| Option | Description |
-|-|-|
+| Option      | Description                                                      |
+| ----------- | ---------------------------------------------------------------- |
 | `bot_token` | Slack bot token with `chat:write` permission (string, optional). |
-| `channel` | Slack channel ID or name for status updates (string, optional). |
+| `channel`   | Slack channel ID or name for status updates (string, optional).  |
 
 ### Redis persistence
 
@@ -784,8 +783,8 @@ control:
       save_interval_secs: 60
 ```
 
-| Option | Description |
-|-|-|
+| Option               | Description                                                                     |
+| -------------------- | ------------------------------------------------------------------------------- |
 | `save_interval_secs` | How often the background task snapshots the store to Redis (int, default `60`). |
 
 To use an external Redis, disable all chart-managed Redis resources and set its URL:
