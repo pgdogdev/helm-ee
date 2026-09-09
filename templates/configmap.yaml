@@ -117,7 +117,7 @@ data:
     [raft]
     token = {{ include "pgdog-control.raft.token" . | quote }}
     storage_path = {{ printf "%s/raft.redb" (trimSuffix "/" .Values.raft.persistence.mountPath) | quote }}
-    cluster_name = {{ .Values.raft.cluster_name | quote }}
+    cluster_name = {{ .Values.raft.cluster_name | default .Release.Name | quote }}
     sequence_cache_size = {{ .Values.raft.sequence_cache_size }}
     {{- range $id := until 3 }}
 

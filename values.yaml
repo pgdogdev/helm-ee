@@ -17,7 +17,8 @@ raft:
   enabled: false
   # Shared peer token. Empty generates a token retained in a Kubernetes Secret.
   token: ""
-  cluster_name: control2
+  # Empty defaults to the Helm release name.
+  cluster_name: ""
   sequence_cache_size: 1000
   persistence:
     size: 1Gi
