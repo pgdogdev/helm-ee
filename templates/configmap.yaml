@@ -18,6 +18,10 @@ metadata:
     {{- include "pgdog-control.labels" . | nindent 4 }}
 data:
   control.toml: |
+    {{- with $config.environment }}
+    environment = {{ . | quote }}
+    {{- end }}
+
     {{- with $config.api }}
     {{- with .pgdog }}
     {{- with .ip_allowlist }}

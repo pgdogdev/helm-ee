@@ -2,5 +2,5 @@ apiVersion: v2
 name: pgdog-control
 description: PgDog Control
 type: application
-version: 0.3.0
+version: 0.3.1
 appVersion: "f477677f"
