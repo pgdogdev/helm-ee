@@ -92,6 +92,7 @@ control:
   # unset falls back to the Rust-side default. Field names match the TOML
   # keys (snake_case) so values are passed through verbatim.
   config:
+    # environment: production # e.g. production or staging
     api: {}
       # pgdog:
       #   ip_allowlist:
