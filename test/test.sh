@@ -42,4 +42,14 @@ grep -q 'imagePullPolicy: Always' <<< "$image_render"
 grep -q 'name: registry-credentials' <<< "$image_render"
 
 echo ""
+echo "==> Verifying raft token sourced from external-secrets..."
+raft_es_render=$(helm template test-release "$CHART_DIR" -f "$TEST_DIR/values-raft-external-secrets.yaml")
+grep -q '^kind: ExternalSecret$' <<< "$raft_es_render"
+grep -q '^    name: test-release-raft$' <<< "$raft_es_render"
+if grep -q '^  token: ' <<< "$raft_es_render"; then
+  echo "chart-generated raft Secret rendered while raft.externalSecrets.enabled=true" >&2
+  exit 1
+fi
+
+echo ""
 echo "==> All chart tests passed!"
