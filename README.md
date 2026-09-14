@@ -104,7 +104,7 @@ Pods start in parallel and update one at a time.
 | Option                          | Description                                                                                                                                                                                                                                               |
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `raft.enabled`                  | Enable the three-member Raft StatefulSet (default `false`).                                                                                                                                                                                               |
-| `raft.token`                    | Shared peer token. Empty generates a token stored in `<release>-raft` Secret and reused by Helm on upgrades. The token is also written to `control.toml` in the ConfigMap. For offline/GitOps rendering, supply a stable token explicitly (default `""`). |
+| `raft.token`                    | Shared peer token. Empty generates a token stored in the `<release>-raft` Secret and reused by Helm on upgrades, or reads it from external-secrets when `raft.externalSecrets.enabled` is set. The token is also written to `control.toml` in the ConfigMap. For offline/GitOps rendering, supply a stable token explicitly (default `""`). |
 | `raft.cluster_name`             | Raft cluster name. Empty defaults to the Helm release name (default `""`).                                                                                                                                                                                |
 | `raft.sequence_cache_size`      | Positive number of sequence values reserved per Raft write (default `1000`).                                                                                                                                                                              |
 | `raft.persistence.size`         | Storage requested by each of the three PVCs (default `1Gi`).                                                                                                                                                                                              |
@@ -114,6 +114,64 @@ Pods start in parallel and update one at a time.
 Raft configuration is omitted when disabled, preserving the existing Deployment.
 Switching an existing release to Raft replaces its control workload and can interrupt service
 while the new pods and volumes start.
+
+#### Sourcing the peer token from external-secrets
+
+Instead of the chart's generate-and-reuse token (see above), you can source it
+from a Secret managed by the [external-secrets](https://external-secrets.io)
+operator. The Secret must carry the token under a `token` key.
+
+**Option 1: Create the ExternalSecret with the chart**
+
+```yaml
+raft:
+  enabled: true
+  externalSecrets:
+    enabled: true
+    create: true
+    secretStoreRef:
+      name: aws-secrets-manager
+      kind: SecretStore
+    remoteRefs:
+      - secretKey: token
+        remoteRef:
+          key: pgdog/raft
+          property: token
+```
+
+**Option 2: Use an existing ExternalSecret**
+
+```yaml
+raft:
+  enabled: true
+  externalSecrets:
+    enabled: true
+    create: false
+    secretName: "my-secret" # Name of Secret you created/manage
+```
+
+In both cases, leave `raft.token` unset — the chart looks up the `token` key of
+the target Secret (`raft.externalSecrets.secretName`, default `<release>-raft`)
+at render time and inlines it into `control.toml`, the same way it does for its
+own generated token. The chart stops rendering its own `<release>-raft` Secret
+so it doesn't fight the ExternalSecret for ownership.
+
+Because the value is resolved by a `lookup`, a render that can't reach the
+cluster — plain `helm template` — falls back to a freshly generated token, and
+so does the first `helm install` if the operator hasn't synced the Secret yet.
+The three members always agree, since they share one ConfigMap; the next
+`helm upgrade` picks up the synced token and rolls the pods through
+`checksum/config`.
+
+| Option | Description |
+|-|-|
+| `raft.externalSecrets.enabled` | Source the peer token from a Secret instead of the chart's generated one (bool, default `false`). |
+| `raft.externalSecrets.create` | Render an `ExternalSecret` resource (bool, default `true`). Set to `false` to reference one you manage yourself. |
+| `raft.externalSecrets.name` | Name of the `ExternalSecret` resource (only used when `create: true`; defaults to `<release>-raft`). |
+| `raft.externalSecrets.secretName` | Name of the target `Secret` populated by the `ExternalSecret`, expected to contain a `token` key (defaults to `<release>-raft`). |
+| `raft.externalSecrets.refreshInterval` | How often the operator resyncs from the external store (only used when `create: true`; default `1h`). |
+| `raft.externalSecrets.secretStoreRef` | `{name, kind}` of the `SecretStore`/`ClusterSecretStore` to use (only used when `create: true`). |
+| `raft.externalSecrets.remoteRefs` | List of `{secretKey, remoteRef: {key, property}}` entries defining what to fetch. The entry feeding the token must use `secretKey: token` (only used when `create: true`). |
 
 ### Ingress
 

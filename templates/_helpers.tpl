@@ -57,27 +57,40 @@ the same cluster don't collide.
 {{- end }}
 
 {{/*
+Name of the Secret expected to hold the raft `token` key: either the chart's
+own generated Secret, or the Secret targeted by raft.externalSecrets
+(populated by the chart-managed ExternalSecret, or by one the user manages
+themselves).
+*/}}
+{{- define "pgdog-control.raft.secretName" -}}
+{{- default (include "pgdog-control.raft.fullname" .) .Values.raft.externalSecrets.secretName -}}
+{{- end }}
+
+{{/*
 Reuse the installed token on upgrades. Cache a newly generated token in the
 render context so the Secret, ConfigMap, and pod checksum all agree.
 */}}
 {{- define "pgdog-control.raft.token" -}}
+{{- $token := "" -}}
 {{- if .Values.raft.token -}}
-{{- if not (regexMatch "^[!-~]+$" .Values.raft.token) -}}
-{{- fail "raft.token must contain only non-whitespace printable ASCII characters" -}}
-{{- end -}}
-{{- .Values.raft.token -}}
+{{- $token = .Values.raft.token -}}
 {{- else -}}
 {{- if not (hasKey .Values.raft "_generatedToken") -}}
-{{- $existing := lookup "v1" "Secret" .Release.Namespace (include "pgdog-control.raft.fullname" .) | default dict -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace (include "pgdog-control.raft.secretName" .) | default dict -}}
 {{- $data := $existing.data | default dict -}}
-{{- $token := index $data "token" | default "" | b64dec -}}
-{{- if not $token -}}
-{{- $token = randAlphaNum 64 -}}
+{{- $stored := index $data "token" | default "" | b64dec -}}
+{{- if not $stored -}}
+{{- $stored = randAlphaNum 64 -}}
 {{- end -}}
-{{- $_ := set .Values.raft "_generatedToken" $token -}}
+{{- $_ := set .Values.raft "_generatedToken" $stored -}}
 {{- end -}}
-{{- .Values.raft._generatedToken -}}
+{{- $token = .Values.raft._generatedToken -}}
 {{- end -}}
+{{/* Also guards tokens read from a Secret, which often carry a trailing newline. */}}
+{{- if not (regexMatch "^[!-~]+$" $token) -}}
+{{- fail "raft token must contain only non-whitespace printable ASCII characters" -}}
+{{- end -}}
+{{- $token -}}
 {{- end }}
 
 {{/*

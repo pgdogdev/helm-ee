@@ -15,8 +15,45 @@ raft:
   # Run three control pods with stable identities and durable Raft storage.
   # Prefer separate machines, but allow pods to share a node when needed.
   enabled: false
-  # Shared peer token. Empty generates a token retained in a Kubernetes Secret.
+  # Shared peer token. Empty generates a token retained in a Kubernetes Secret,
+  # unless raft.externalSecrets below supplies one instead.
   token: ""
+  # externalSecrets sources the shared peer token from a Secret managed by the
+  # external-secrets operator (https://external-secrets.io) instead of the
+  # chart's own generated one. Leave raft.token unset when using it.
+  externalSecrets:
+    # enabled switches token sourcing to the Secret named below, instead of
+    # the chart-managed generated secret.
+    enabled: false
+    # create controls whether the chart renders an ExternalSecret resource.
+    # Set to false to reference an ExternalSecret you already manage
+    # yourself (only secretName is then used).
+    create: true
+    # name of the ExternalSecret resource to create (only used when
+    # create: true). Defaults to `<release>-raft`.
+    name: ""
+    # secretName is the target Secret populated by the ExternalSecret (or by
+    # your own ExternalSecret when create: false). Must contain a `token`
+    # key. Defaults to `<release>-raft`, the same name the chart would
+    # otherwise use for its own generated secret.
+    secretName: ""
+    # refreshInterval defines how often to sync secrets from the external
+    # source (only used when create: true)
+    refreshInterval: 1h
+    # secretStoreRef references the SecretStore to use
+    # (only used when create: true)
+    secretStoreRef:
+      name: ""
+      kind: SecretStore
+    # remoteRefs defines the external secret references. The entry feeding
+    # the peer token must use `secretKey: token`
+    # (only used when create: true)
+    remoteRefs: []
+      # Example structure:
+      # - secretKey: token
+      #   remoteRef:
+      #     key: pgdog/raft
+      #     property: token
   # Empty defaults to the Helm release name.
   cluster_name: ""
   sequence_cache_size: 1000
