@@ -645,6 +645,55 @@ control:
 
 The provider's `[auth.<provider>]` section still has to render for the login route to be enabled, so keep at least one inline field (`client_id`, `allowed_orgs`/`allowed_domains`) or the `secret` block set under the provider. Env vars sourced this way are not hashed into the deployment's `checksum/config` annotation — rotating the referenced Secret needs a manual `kubectl rollout restart deployment/<release>-control`.
 
+#### Sourcing cookie_secret from external-secrets
+
+Instead of the chart's random-generate-and-reuse `cookie_secret` (see above), you
+can source it from a Secret managed by the [external-secrets](https://external-secrets.io)
+operator.
+
+**Option 1: Create the ExternalSecret with the chart**
+
+```yaml
+control:
+  externalSecrets:
+    enabled: true
+    create: true
+    secretStoreRef:
+      name: aws-secrets-manager
+      kind: SecretStore
+    remoteRefs:
+      - secretKey: cookie_secret
+        remoteRef:
+          key: pgdog/control
+          property: cookie_secret
+```
+
+**Option 2: Use an existing ExternalSecret**
+
+```yaml
+control:
+  externalSecrets:
+    enabled: true
+    create: false
+    secretName: "my-secret" # Name of Secret you created/manage
+```
+
+In both cases, leave `config.auth.cookie_secret` unset — the chart looks up the
+`cookie_secret` key of the target Secret (`control.externalSecrets.secretName`,
+default `<release>-secrets`) at render time and inlines it into `control.toml`,
+the same way it does for its own auto-generated secret. `helm upgrade` picks up
+rotated values automatically since the `lookup` re-runs on every render.
+
+| Option | Description |
+|-|-|
+| `control.externalSecrets.enabled` | Source `cookie_secret` from a Secret instead of the chart's random one (bool, default `false`). |
+| `control.externalSecrets.create` | Render an `ExternalSecret` resource (bool, default `true`). Set to `false` to reference one you manage yourself. |
+| `control.externalSecrets.name` | Name of the `ExternalSecret` resource (only used when `create: true`; defaults to `<release>-control`). |
+| `control.externalSecrets.secretName` | Name of the target `Secret` populated by the `ExternalSecret`, expected to contain a `cookie_secret` key (defaults to `<release>-secrets`). |
+| `control.externalSecrets.refreshInterval` | How often the operator resyncs from the external store (only used when `create: true`; default `1h`). |
+| `control.externalSecrets.secretStoreRef` | `{name, kind}` of the `SecretStore`/`ClusterSecretStore` to use (only used when `create: true`). |
+| `control.externalSecrets.remoteRefs` | List of `{secretKey, remoteRef: {key, property}}` entries defining what to fetch (only used when `create: true`). |
+
 ### Helm
 
 When the dashboard provisions a new PgDog cluster, it shells out to `helm upgrade --install` against a chart fetched from our Helm repository. `control.config.helm` controls which chart and which repository. The defaults point at the public `pgdogdev` chart on `helm.pgdog.dev`, which is what you want unless you mirror the chart internally.

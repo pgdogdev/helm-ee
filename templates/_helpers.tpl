@@ -91,6 +91,16 @@ control.config.redis.url remains supported for backwards compatibility.
 {{- end }}
 
 {{/*
+Name of the Secret expected to hold the cookie_secret key: either the
+chart's own randomly generated Secret, or the Secret targeted by
+control.externalSecrets (populated by the chart-managed ExternalSecret,
+or by one the user manages themselves).
+*/}}
+{{- define "pgdog-control.secretsName" -}}
+{{- default (printf "%s-secrets" .Release.Name) .Values.control.externalSecrets.secretName }}
+{{- end }}
+
+{{/*
 ServiceAccount name for the control component. Falls back to the
 control fullname when not explicitly set in values.
 */}}
