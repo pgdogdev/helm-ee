@@ -65,6 +65,7 @@ control:
         cpu: 90.0
         memory: 2048
         server_connections: 100
+        checkout_timeouts: 1
         slow_queries: true
       incident_io:
         api_key: incident-token
