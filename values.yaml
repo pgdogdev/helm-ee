@@ -173,6 +173,7 @@ control:
       #   cpu: 90.0
       #   memory: 2048
       #   server_connections: 100
+      #   checkout_timeouts: 1      # Timeouts/sec, averaged over the evaluation window across running instances.
       #   slow_queries: false
       # incident_io:
       #   api_key: ""

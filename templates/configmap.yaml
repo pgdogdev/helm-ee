@@ -212,6 +212,9 @@ data:
     {{- if hasKey . "server_connections" }}
     server_connections = {{ .server_connections }}
     {{- end }}
+    {{- if hasKey . "checkout_timeouts" }}
+    checkout_timeouts = {{ .checkout_timeouts }}
+    {{- end }}
     {{- if hasKey . "slow_queries" }}
     slow_queries = {{ .slow_queries }}
     {{- end }}

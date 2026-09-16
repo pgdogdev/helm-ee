@@ -709,6 +709,7 @@ control:
         cpu: 90.0
         memory: 2048
         server_connections: 100
+        checkout_timeouts: 1
         slow_queries: true
       incident_io:
         api_key: inc_live_xxx
@@ -721,6 +722,7 @@ control:
 | `thresholds.cpu`                | CPU usage percentage. Must be between `0.0` and `100.0`, inclusive (float, optional).                                       |
 | `thresholds.memory`             | Memory used, in megabytes (int, optional).                                                                                  |
 | `thresholds.server_connections` | Number of open server connections (int, optional).                                                                          |
+| `thresholds.checkout_timeouts`   | Checkout timeouts per second, averaged over the evaluation window and summed across running instances (int, optional).      |
 | `thresholds.slow_queries`       | Create incidents for queries whose duration reaches `store.slow_queries_threshold` (bool, default `false`).                 |
 | `incident_io.api_key`           | incident.io API key with permission to create incidents. Missing `incident_io` disables the integration (string, optional). |
 
