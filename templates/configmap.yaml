@@ -3,7 +3,7 @@
 {{- $cookieSecret := "" -}}
 {{- if $auth.cookie_secret -}}
 {{- $cookieSecret = $auth.cookie_secret -}}
-{{- else -}}
+{{- else if not (($auth.secret | default dict).cookieSecretKey) -}}
 {{- $existing := (lookup "v1" "Secret" .Release.Namespace (printf "%s-secrets" .Release.Name)) | default dict -}}
 {{- $existingData := $existing.data | default dict -}}
 {{- if hasKey $existingData "cookie_secret" -}}
@@ -119,7 +119,9 @@ data:
     {{- if .Values.raft.enabled }}
 
     [raft]
+    {{- if or .Values.raft.token (not ((.Values.raft.secret | default dict).tokenKey)) }}
     token = {{ include "pgdog-control.raft.token" . | quote }}
+    {{- end }}
     storage_path = {{ printf "%s/raft.redb" (trimSuffix "/" .Values.raft.persistence.mountPath) | quote }}
     cluster_name = {{ .Values.raft.cluster_name | default .Release.Name | quote }}
     sequence_cache_size = {{ .Values.raft.sequence_cache_size }}
@@ -239,7 +241,9 @@ data:
     {{- $redis := $config.redis | default dict }}
 
     [redis]
+    {{- if or .Values.redis.url $redis.url (not ((.Values.redis.secret | default dict).urlKey)) }}
     url = {{ include "pgdog-control.redis.url" . | quote }}
+    {{- end }}
     {{- with $redis.save_interval_secs }}
     save_interval_secs = {{ . }}
     {{- end }}

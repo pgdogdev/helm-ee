@@ -10,8 +10,8 @@ helm lint "$CHART_DIR"
 for values_file in "$TEST_DIR"/values-*.yaml; do
   name=$(basename "$values_file" .yaml | sed 's/values-//')
   echo ""
-  echo "==> Rendering $name..."
-  helm template test-release "$CHART_DIR" -f "$values_file" > /dev/null
+  echo "==> Templating and validating $name..."
+  helm template test-release "$CHART_DIR" -f "$values_file" | kubeconform -strict -ignore-missing-schemas -summary
 done
 
 echo ""
@@ -29,7 +29,7 @@ if grep -q 'app.kubernetes.io/component: redis' <<< "$external_render"; then
   exit 1
 fi
 if grep -q -- '- name: REDIS_URL' <<< "$external_render"; then
-  echo "REDIS_URL environment variable rendered, but the app only reads control.toml" >&2
+  echo "REDIS_URL environment variable rendered without a Secret reference" >&2
   exit 1
 fi
 grep -A1 '^    \[redis\]$' <<< "$external_render" | grep -q 'url = "redis://external-redis.example.com:6379"'
