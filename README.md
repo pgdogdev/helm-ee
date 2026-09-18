@@ -610,18 +610,73 @@ control:
 
 ### Secrets
 
-For each block below, set `name` to an existing Kubernetes Secret in the release namespace and the key option to a key inside it. For example, set `raft.secret.name: control-secrets` and `raft.secret.tokenKey: raft-token`. The chart injects the value through `secretKeyRef`; leave the corresponding inline setting unset because it takes precedence.
+Secrets are injected as environment variables. Leave corresponding inline values unset, since they take precedence.
 
-| Environment variable | Secret block | Key option | Inline setting to leave unset |
-| --- | --- | --- | --- |
-| `GITHUB_CLIENT_ID` | `control.config.auth.github.secret` | `clientIdKey` | `control.config.auth.github.client_id` |
-| `GITHUB_CLIENT_SECRET` | `control.config.auth.github.secret` | `clientSecretKey` | `control.config.auth.github.client_secret` |
-| `GOOGLE_CLIENT_ID` | `control.config.auth.google.secret` | `clientIdKey` | `control.config.auth.google.client_id` |
-| `GOOGLE_CLIENT_SECRET` | `control.config.auth.google.secret` | `clientSecretKey` | `control.config.auth.google.client_secret` |
-| `COOKIE_SECRET` | `control.config.auth.secret` | `cookieSecretKey` | `control.config.auth.cookie_secret` |
-| `INCIDENT_IO_API_KEY` | `control.config.alerts.incident_io.secret` | `apiKeyKey` | `control.config.alerts.incident_io.api_key` |
-| `RAFT_TOKEN` | `raft.secret` | `tokenKey` | `raft.token` |
-| `REDIS_URL` | `redis.secret` | `urlKey` | `redis.url` and `control.config.redis.url` |
+| Environment variable | Description |
+| --- | --- |
+| `GITHUB_CLIENT_ID` | GitHub OAuth application ID. |
+| `GITHUB_CLIENT_SECRET` | GitHub OAuth application secret. |
+| `GOOGLE_CLIENT_ID` | Google OAuth application ID. |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth application secret. |
+| `COOKIE_SECRET` | Key used to sign session and CSRF cookies. |
+| `INCIDENT_IO_API_KEY` | incident.io API key for creating incidents. |
+| `RAFT_TOKEN` | Shared token authenticating Raft peers. |
+| `REDIS_URL` | Redis connection URL, including credentials if required. |
+
+Create `secrets.yaml` separately from the Helm release, replacing the example values:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: control-secrets
+type: Opaque
+stringData:
+  github-client-id: "your-github-client-id"
+  github-client-secret: "your-github-client-secret"
+  google-client-id: "your-google-client-id"
+  google-client-secret: "your-google-client-secret"
+  cookie-secret: "replace-with-a-random-key-of-at-least-32-bytes"
+  incident-io-api-key: "inc_your-api-key"
+  raft-token: "replace-with-a-shared-random-token"
+  redis-url: "redis://user:password@redis.example.com:6379"
+```
+
+Apply it in the release namespace with `kubectl apply -n <release-namespace> -f secrets.yaml`, then reference its keys in `values.yaml`:
+
+```yaml
+control:
+  config:
+    auth:
+      secret:
+        name: control-secrets
+        cookieSecretKey: cookie-secret
+      github:
+        secret:
+          name: control-secrets
+          clientIdKey: github-client-id
+          clientSecretKey: github-client-secret
+      google:
+        secret:
+          name: control-secrets
+          clientIdKey: google-client-id
+          clientSecretKey: google-client-secret
+    alerts:
+      incident_io:
+        secret:
+          name: control-secrets
+          apiKeyKey: incident-io-api-key
+raft:
+  enabled: true
+  secret:
+    name: control-secrets
+    tokenKey: raft-token
+redis:
+  enabled: false
+  secret:
+    name: control-secrets
+    urlKey: redis-url
+```
 
 Cookie and Raft references disable their generated Secrets. A Redis reference omits the default URL; set `redis.enabled: false` for external Redis. Raft requires `raft.enabled: true`. The last four variables require a control image containing commit `80895477` or later.
 
