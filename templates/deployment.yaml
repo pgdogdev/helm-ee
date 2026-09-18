@@ -151,6 +151,46 @@ spec:
           value: {{ . | quote }}
         {{- end }}
         {{- $auth := (.Values.control.config | default dict).auth | default dict }}
+        {{- with $auth.secret }}
+        {{- if .cookieSecretKey }}
+        - name: COOKIE_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ required "control.config.auth.secret.name is required when cookieSecretKey is set" .name | quote }}
+              key: {{ .cookieSecretKey | quote }}
+        {{- end }}
+        {{- end }}
+        {{- with ((.Values.control.config | default dict).alerts | default dict).incident_io }}
+        {{- with .secret }}
+        {{- if .apiKeyKey }}
+        - name: INCIDENT_IO_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ required "control.config.alerts.incident_io.secret.name is required when apiKeyKey is set" .name | quote }}
+              key: {{ .apiKeyKey | quote }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
+        {{- if .Values.raft.enabled }}
+        {{- with .Values.raft.secret }}
+        {{- if .tokenKey }}
+        - name: RAFT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ required "raft.secret.name is required when tokenKey is set" .name | quote }}
+              key: {{ .tokenKey | quote }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
+        {{- with .Values.redis.secret }}
+        {{- if .urlKey }}
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: {{ required "redis.secret.name is required when urlKey is set" .name | quote }}
+              key: {{ .urlKey | quote }}
+        {{- end }}
+        {{- end }}
         {{- with $auth.github }}
         {{- with .secret }}
         # OAuth credentials sourced from an existing Secret. The control

@@ -608,42 +608,79 @@ control:
 | `google.client_id` / `google.client_secret` | OAuth credentials from the Google Cloud OAuth client. Required to enable the Google login route.                                                                                                                                                                                                                                                                   |
 | `google.allowed_domains`                    | If non-empty, only users whose verified Google email's domain (the part after `@`, compared case-insensitively) appears in this list are allowed to log in (list of strings, default `[]`).                                                                                                                                                                        |
 
-#### Sourcing OAuth credentials from a Secret
+### Secrets
 
-Inlining `client_id` / `client_secret` above writes them in plaintext into the `<release>-control-config` ConfigMap. To keep the client secrets out of the ConfigMap (and out of your values), reference an existing `Secret` in the release namespace instead. The chart injects each referenced key as an environment variable (`GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) via `secretKeyRef`; the control plane reads these when the corresponding field is absent from `control.toml`.
+Secrets are injected as environment variables. Leave corresponding inline values unset, since they take precedence.
 
-```sh
-kubectl create secret generic oauth-secrets \
-  --from-literal=github-client-secret=shhh \
-  --from-literal=google-client-secret=shhh
+| Environment variable | Description |
+| --- | --- |
+| `GITHUB_CLIENT_ID` | GitHub OAuth application ID. |
+| `GITHUB_CLIENT_SECRET` | GitHub OAuth application secret. |
+| `GOOGLE_CLIENT_ID` | Google OAuth application ID. |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth application secret. |
+| `COOKIE_SECRET` | Key used to sign session and CSRF cookies. |
+| `INCIDENT_IO_API_KEY` | incident.io API key for creating incidents. |
+| `RAFT_TOKEN` | Shared token authenticating Raft peers. |
+| `REDIS_URL` | Redis connection URL, including credentials if required. |
+
+Create `secrets.yaml` separately from the Helm release, replacing the example values:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: control-secrets
+type: Opaque
+stringData:
+  github-client-id: "your-github-client-id"
+  github-client-secret: "your-github-client-secret"
+  google-client-id: "your-google-client-id"
+  google-client-secret: "your-google-client-secret"
+  cookie-secret: "replace-with-a-random-key-of-at-least-32-bytes"
+  incident-io-api-key: "inc_your-api-key"
+  raft-token: "replace-with-a-shared-random-token"
+  redis-url: "redis://user:password@redis.example.com:6379"
 ```
+
+Apply it in the release namespace with `kubectl apply -n <release-namespace> -f secrets.yaml`, then reference its keys in `values.yaml`:
 
 ```yaml
 control:
   config:
     auth:
-      redirect_base_url: https://control.acme.com
+      secret:
+        name: control-secrets
+        cookieSecretKey: cookie-secret
       github:
-        client_id: Iv1.0123456789abcdef # not sensitive — fine to inline
-        allowed_orgs: [acme-corp]
         secret:
-          name: oauth-secrets
+          name: control-secrets
+          clientIdKey: github-client-id
           clientSecretKey: github-client-secret
       google:
-        client_id: 0123456789-abc.apps.googleusercontent.com
-        allowed_domains: [acme.com]
         secret:
-          name: oauth-secrets
+          name: control-secrets
+          clientIdKey: google-client-id
           clientSecretKey: google-client-secret
+    alerts:
+      incident_io:
+        secret:
+          name: control-secrets
+          apiKeyKey: incident-io-api-key
+raft:
+  enabled: true
+  secret:
+    name: control-secrets
+    tokenKey: raft-token
+redis:
+  enabled: false
+  secret:
+    name: control-secrets
+    urlKey: redis-url
 ```
 
-| Option                              | Description                                                                                                                                       |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `<provider>.secret.name`            | Name of an existing `Secret` in the release namespace holding the credentials. Required when either key below is set (string, optional).          |
-| `<provider>.secret.clientIdKey`     | Key in that Secret to inject as `GITHUB_CLIENT_ID` / `GOOGLE_CLIENT_ID`. Leave `client_id` unset when this is set (string, optional).             |
-| `<provider>.secret.clientSecretKey` | Key in that Secret to inject as `GITHUB_CLIENT_SECRET` / `GOOGLE_CLIENT_SECRET`. Leave `client_secret` unset when this is set (string, optional). |
+Cookie and Raft references disable their generated Secrets. A Redis reference omits the default URL; set `redis.enabled: false` for external Redis. Raft requires `raft.enabled: true`. The last four variables require a control image containing commit `80895477` or later.
 
-The provider's `[auth.<provider>]` section still has to render for the login route to be enabled, so keep at least one inline field (`client_id`, `allowed_orgs`/`allowed_domains`) or the `secret` block set under the provider. Env vars sourced this way are not hashed into the deployment's `checksum/config` annotation — rotating the referenced Secret needs a manual `kubectl rollout restart deployment/<release>-control`.
+After rotating a Secret, run `kubectl rollout restart deployment/<release>-control` (use `statefulset` when Raft is enabled).
 
 ### Helm
 

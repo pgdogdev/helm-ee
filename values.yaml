@@ -17,6 +17,10 @@ raft:
   enabled: false
   # Shared peer token. Empty generates a token retained in a Kubernetes Secret.
   token: ""
+  # Source RAFT_TOKEN from an existing Secret instead; leave token empty.
+  secret: {}
+    # name: ""
+    # tokenKey: ""
   # Empty defaults to the Helm release name.
   cluster_name: ""
   sequence_cache_size: 1000
@@ -137,6 +141,9 @@ control:
       # repo_url: https://helm.pgdog.dev
     auth: {}
       # cookie_secret: ""               # optional; random key generated at boot when absent
+      # secret:
+      #   name: ""                      # existing Secret in the release namespace
+      #   cookieSecretKey: ""           # key -> COOKIE_SECRET; leave cookie_secret unset
       # redirect_base_url: ""           # e.g. https://control.example.com
       # cookie_secure: true
       # session_max_age_days: 30
@@ -176,6 +183,9 @@ control:
       #   slow_queries: false
       # incident_io:
       #   api_key: ""
+      #   secret:
+      #     name: ""                    # existing Secret in the release namespace
+      #     apiKeyKey: ""               # key -> INCIDENT_IO_API_KEY; leave api_key unset
     slack: {}
       # bot_token: ""                    # optional; defaults to SLACK_BOT_TOKEN env when absent
       # channel: ""                      # optional; defaults to SLACK_CHANNEL env when absent
@@ -190,6 +200,11 @@ redis:
   # Connection string written to [redis].url in control.toml. When empty,
   # it points to the chart-managed Redis service.
   url: ""
+  # Source REDIS_URL from an existing Secret instead; leave redis.url and
+  # control.config.redis.url unset. Disable redis.enabled for external Redis.
+  secret: {}
+    # name: ""
+    # urlKey: ""
   image:
     repository: redis
     tag: "7-alpine"

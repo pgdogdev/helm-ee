@@ -20,6 +20,11 @@ jobs:
         with:
           version: latest
 
+      - name: Install kubeconform
+        run: |
+          curl -fLsS https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz
+          sudo mv kubeconform /usr/local/bin/
+
       - name: Run chart tests
         run: ./test/test.sh
 
@@ -55,6 +60,10 @@ jobs:
             rm -f /tmp/control.toml
             ./test/generate-config.sh "$values_file" /tmp/control.toml
             docker run --rm \
+              -e COOKIE_SECRET=test-cookie-secret \
+              -e INCIDENT_IO_API_KEY=inc_test \
+              -e RAFT_TOKEN=test-raft-token \
+              -e REDIS_URL=redis://redis.example.com:6379 \
               -v /tmp/control.toml:/tmp/control.toml:ro \
               "$CONTROL2_IMAGE" \
               /usr/local/bin/control2 configcheck --config /tmp/control.toml
