@@ -71,11 +71,22 @@ redis:
 | Option                    | Description                                                                                                                                         |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `redis.enabled`           | Deploy the chart-managed Redis resources (bool, default `true`).                                                                                    |
+| `redis.pdb.enabled`       | Create the Redis PodDisruptionBudget with `minAvailable: 1` (bool, default `true`).                                                                  |
 | `redis.url`               | Redis connection string written to `[redis].url` in `control.toml`. When empty, defaults to the chart-managed Redis Service (string, default `""`). |
 | `redis.image.repository`  | Redis image repository (string, default `redis`).                                                                                                   |
 | `redis.image.tag`         | Redis image tag (string, default `7-alpine`).                                                                                                       |
 | `redis.image.pullPolicy`  | Redis image pull policy (string, default `IfNotPresent`).                                                                                           |
 | `redis.image.pullSecrets` | Image pull secrets attached to the Redis pod (list, default `[]`).                                                                                  |
+
+The Redis PodDisruptionBudget blocks voluntary evictions of the single Redis replica, including during node drains and managed node upgrades. Set `redis.pdb.enabled: false` to allow these evictions while keeping Redis deployed:
+
+```yaml
+redis:
+  pdb:
+    enabled: false
+```
+
+Redis will be unavailable while its pod is replaced. The pod retains its `cluster-autoscaler.kubernetes.io/safe-to-evict: "false"` annotation.
 
 ### Raft
 
