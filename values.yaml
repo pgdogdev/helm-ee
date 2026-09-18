@@ -197,6 +197,10 @@ redis:
   # Deploy the chart-managed Redis instance. Disable this when using an
   # external Redis and set redis.url to its connection string.
   enabled: true
+  pdb:
+    # Keep at least one Redis pod available. With a single replica, this
+    # blocks node drains; disable to allow Redis to be evicted during maintenance.
+    enabled: true
   # Connection string written to [redis].url in control.toml. When empty,
   # it points to the chart-managed Redis service.
   url: ""
