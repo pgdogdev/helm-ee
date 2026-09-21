@@ -43,6 +43,7 @@ control:
       repo: pgdogdev
       repo_url: https://helm.pgdog.dev
     auth:
+      tokens: [token-1, token-2]
       cookie_secret: test-cookie-secret
       redirect_base_url: https://control.example.com
       cookie_secure: true

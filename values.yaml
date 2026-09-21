@@ -140,9 +140,11 @@ control:
       # repo: pgdogdev
       # repo_url: https://helm.pgdog.dev
     auth: {}
+      # tokens: ["token-1", "token-2"]  # /api/v2 Bearer token allowlist; [] disables validation
       # cookie_secret: ""               # optional; random key generated at boot when absent
       # secret:
       #   name: ""                      # existing Secret in the release namespace
+      #   tokensKey: ""                 # comma-separated list -> AUTH_TOKENS; leave tokens unset
       #   cookieSecretKey: ""           # key -> COOKIE_SECRET; leave cookie_secret unset
       # redirect_base_url: ""           # e.g. https://control.example.com
       # cookie_secure: true

@@ -152,6 +152,13 @@ spec:
         {{- end }}
         {{- $auth := (.Values.control.config | default dict).auth | default dict }}
         {{- with $auth.secret }}
+        {{- if .tokensKey }}
+        - name: AUTH_TOKENS
+          valueFrom:
+            secretKeyRef:
+              name: {{ required "control.config.auth.secret.name is required when tokensKey is set" .name | quote }}
+              key: {{ .tokensKey | quote }}
+        {{- end }}
         {{- if .cookieSecretKey }}
         - name: COOKIE_SECRET
           valueFrom:
