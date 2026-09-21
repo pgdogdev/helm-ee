@@ -150,6 +150,9 @@ data:
     {{- if or $cookieSecret (gt (len $auth) 0) }}
 
     [auth]
+    {{- if hasKey $auth "tokens" }}
+    tokens = [{{ range $i, $token := $auth.tokens }}{{ if $i }}, {{ end }}{{ $token | quote }}{{ end }}]
+    {{- end }}
     {{- if $cookieSecret }}
     cookie_secret = {{ $cookieSecret | quote }}
     {{- end }}

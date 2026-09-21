@@ -71,7 +71,7 @@ redis:
 | Option                    | Description                                                                                                                                         |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `redis.enabled`           | Deploy the chart-managed Redis resources (bool, default `true`).                                                                                    |
-| `redis.pdb.enabled`       | Create the Redis PodDisruptionBudget with `minAvailable: 1` (bool, default `true`).                                                                  |
+| `redis.pdb.enabled`       | Create the Redis PodDisruptionBudget with `minAvailable: 1` (bool, default `true`).                                                                 |
 | `redis.url`               | Redis connection string written to `[redis].url` in `control.toml`. When empty, defaults to the chart-managed Redis Service (string, default `""`). |
 | `redis.image.repository`  | Redis image repository (string, default `redis`).                                                                                                   |
 | `redis.image.tag`         | Redis image tag (string, default `7-alpine`).                                                                                                       |
@@ -588,6 +588,17 @@ If `allowed_cidrs` is omitted, the control plane defaults to private IPv4 ranges
 
 ### Authentication
 
+Set `control.config.auth.tokens` to restrict requests to the PgDog API to the listed Bearer tokens:
+
+```yaml
+control:
+  config:
+    auth:
+      tokens: ["token-1", "token-2"]
+```
+
+See [Secrets](#secrets) on how to configure these using a Kube `Secret`.
+
 `control.config.auth` wires up the OAuth-backed login flow for the dashboard. GitHub and Google are supported and can be enabled side by side. At least one needs to be configured, or the dashboard will be **accessible by anyone with the URL**:
 
 ```yaml
@@ -623,16 +634,17 @@ control:
 
 Secrets are injected as environment variables. Leave corresponding inline values unset, since they take precedence.
 
-| Environment variable | Description |
-| --- | --- |
-| `GITHUB_CLIENT_ID` | GitHub OAuth application ID. |
-| `GITHUB_CLIENT_SECRET` | GitHub OAuth application secret. |
-| `GOOGLE_CLIENT_ID` | Google OAuth application ID. |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth application secret. |
-| `COOKIE_SECRET` | Key used to sign session and CSRF cookies. |
-| `INCIDENT_IO_API_KEY` | incident.io API key for creating incidents. |
-| `RAFT_TOKEN` | Shared token authenticating Raft peers. |
-| `REDIS_URL` | Redis connection URL, including credentials if required. |
+| Environment variable   | Description                                                                                                   |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `AUTH_TOKENS`          | Comma-separated Bearer token allowlist for `/api/v2`, sourced through `control.config.auth.secret.tokensKey`. |
+| `GITHUB_CLIENT_ID`     | GitHub OAuth application ID.                                                                                  |
+| `GITHUB_CLIENT_SECRET` | GitHub OAuth application secret.                                                                              |
+| `GOOGLE_CLIENT_ID`     | Google OAuth application ID.                                                                                  |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth application secret.                                                                              |
+| `COOKIE_SECRET`        | Key used to sign session and CSRF cookies.                                                                    |
+| `INCIDENT_IO_API_KEY`  | incident.io API key for creating incidents.                                                                   |
+| `RAFT_TOKEN`           | Shared token authenticating Raft peers.                                                                       |
+| `REDIS_URL`            | Redis connection URL, including credentials if required.                                                      |
 
 Create `secrets.yaml` separately from the Helm release, replacing the example values:
 
@@ -643,6 +655,7 @@ metadata:
   name: control-secrets
 type: Opaque
 stringData:
+  auth-tokens: "token-1,token-2"
   github-client-id: "your-github-client-id"
   github-client-secret: "your-github-client-secret"
   google-client-id: "your-google-client-id"
@@ -661,6 +674,7 @@ control:
     auth:
       secret:
         name: control-secrets
+        tokensKey: auth-tokens
         cookieSecretKey: cookie-secret
       github:
         secret:
