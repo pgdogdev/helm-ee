@@ -18,6 +18,10 @@ control:
     rds:
       refresh_interval_secs: 45
       autodiscovery: true
+      tags:
+        environment: production
+        "company:team": payments
+        "app.kubernetes.io/name": postgres
     kube:
       refresh_interval_secs: 10
     dns:
