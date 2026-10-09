@@ -44,6 +44,13 @@ data:
     {{- if hasKey . "autodiscovery" }}
     autodiscovery = {{ .autodiscovery }}
     {{- end }}
+    {{- with .tags }}
+
+    [rds.tags]
+    {{- range $name, $value := . }}
+    {{ $name | quote }} = {{ $value | quote }}
+    {{- end }}
+    {{- end }}
     {{- end }}
 
     {{- with $config.kube }}

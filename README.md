@@ -737,6 +737,9 @@ control:
       refresh_interval_secs: 60
       # Experimental: do not enable in production yet.
       autodiscovery: false
+      tags:
+        environment: production
+        "company:team": payments
     kube:
       refresh_interval_secs: 15
     dns:
@@ -747,15 +750,18 @@ control:
       period_secs: 60
 ```
 
-| Option                             | Description                                                                                                                                                          |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `rds.refresh_interval_secs`        | How often to poll AWS RDS for cluster and instance topology (int, default `60`).                                                                                     |
-| `rds.autodiscovery`                | **Experimental. Do not enable in production yet.** Automatically reconcile Helm-managed PgDog database entries from discovered RDS topology (bool, default `false`). |
-| `kube.refresh_interval_secs`       | How often to poll Kubernetes for PgDog workloads. Independent of the `watch` streams, which fire on events (int, default `15`).                                      |
-| `dns.refresh_interval_secs`        | How often to re-resolve every known RDS hostname (int, default `30`).                                                                                                |
-| `cloudwatch.refresh_interval_secs` | How often to poll CloudWatch for per-instance metrics (int, default `60`).                                                                                           |
-| `cloudwatch.lookback_secs`         | How far back each fetch reaches. A fresh deploy pulls the full window on its first tick (int, default `3600`).                                                       |
-| `cloudwatch.period_secs`           | CloudWatch aggregation period. The smallest bucket the metric API returns (int, default `60`).                                                                       |
+| Option                             | Description                                                                                                                                                                                                                        |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rds.tags`                         | Tag key/value map used to select resources before RDS detail and parameter-group requests. All entries must match exactly, including case. Omit or use `{}` to discover all databases. Requires `tag:GetResources` (default `{}`). |
+| `rds.refresh_interval_secs`        | How often to poll AWS RDS for cluster and instance topology (int, default `60`).                                                                                                                                                   |
+| `rds.autodiscovery`                | **Experimental. Do not enable in production yet.** Automatically reconcile Helm-managed PgDog database entries from discovered RDS topology (bool, default `false`).                                                               |
+| `kube.refresh_interval_secs`       | How often to poll Kubernetes for PgDog workloads. Independent of the `watch` streams, which fire on events (int, default `15`).                                                                                                    |
+| `dns.refresh_interval_secs`        | How often to re-resolve every known RDS hostname (int, default `30`).                                                                                                                                                              |
+| `cloudwatch.refresh_interval_secs` | How often to poll CloudWatch for per-instance metrics (int, default `60`).                                                                                                                                                         |
+| `cloudwatch.lookback_secs`         | How far back each fetch reaches. A fresh deploy pulls the full window on its first tick (int, default `3600`).                                                                                                                     |
+| `cloudwatch.period_secs`           | CloudWatch aggregation period. The smallest bucket the metric API returns (int, default `60`).                                                                                                                                     |
+
+Matching clusters include all their member instances; standalone instances match their own tags. When filters are configured, the AWS role also needs `tag:GetResources` with `Resource: "*"`. The control plane uses this API to find matching resources before making scoped RDS requests.
 
 ### Alerting
 

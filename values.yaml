@@ -115,6 +115,12 @@ control:
       # refresh_interval_secs: 60
       # Experimental: do not enable in production yet.
       # autodiscovery: false
+      # Select RDS resources by tag before fetching their details.
+      # All keys and values must match exactly (case-sensitive).
+      # Omit or use tags: {} to discover all databases. Requires tag:GetResources.
+      # tags:
+      #   environment: production
+      #   "company:team": payments
     kube: {}
       # refresh_interval_secs: 15
     dns: {}
