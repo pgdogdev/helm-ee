@@ -197,54 +197,6 @@ control:
     slack: {}
       # bot_token: ""                    # optional; defaults to SLACK_BOT_TOKEN env when absent
       # channel: ""                      # optional; defaults to SLACK_CHANNEL env when absent
-    redis: {}
-      # url: ""                          # deprecated; use redis.url instead
-      # save_interval_secs: 60
-
-redis:
-  # Deploy the chart-managed Redis instance. Disable this when using an
-  # external Redis and set redis.url to its connection string.
-  enabled: true
-  pdb:
-    # Keep at least one Redis pod available. With a single replica, this
-    # blocks node drains; disable to allow Redis to be evicted during maintenance.
-    enabled: true
-  # Connection string written to [redis].url in control.toml. When empty,
-  # it points to the chart-managed Redis service.
-  url: ""
-  # Source REDIS_URL from an existing Secret instead; leave redis.url and
-  # control.config.redis.url unset. Disable redis.enabled for external Redis.
-  secret: {}
-    # name: ""
-    # urlKey: ""
-  image:
-    repository: redis
-    tag: "7-alpine"
-    pullPolicy: IfNotPresent
-    pullSecrets: []
-  resources:
-    requests:
-      memory: "128Mi"
-      cpu: "100m"
-    limits:
-      memory: "256Mi"
-      cpu: "500m"
-  # Pod-level securityContext for the Redis deployment.
-  # Defaults are PSS Restricted compliant.
-  podSecurityContext:
-    runAsNonRoot: true
-    runAsUser: 999
-    runAsGroup: 999
-    fsGroup: 999
-    seccompProfile:
-      type: RuntimeDefault
-  # Container-level securityContext for the Redis container.
-  # Defaults are PSS Restricted compliant.
-  containerSecurityContext:
-    allowPrivilegeEscalation: false
-    readOnlyRootFilesystem: true
-    capabilities:
-      drop: ["ALL"]
 
 networkPolicy:
   enabled: false

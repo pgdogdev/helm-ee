@@ -47,10 +47,6 @@ the same cluster don't collide.
 {{- printf "%s-%s-control" .Release.Name .Release.Namespace | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
-{{- define "pgdog-control.redis.fullname" -}}
-{{- printf "%s-redis" .Release.Name | trunc 63 | trimSuffix "-" }}
-{{- end }}
-
 {{/* Stable DNS service and token Secret for the Raft members. */}}
 {{- define "pgdog-control.raft.fullname" -}}
 {{- printf "%s-raft" .Release.Name | trunc 63 | trimSuffix "-" -}}
@@ -78,16 +74,6 @@ render context so the Secret, ConfigMap, and pod checksum all agree.
 {{- end -}}
 {{- .Values.raft._generatedToken -}}
 {{- end -}}
-{{- end }}
-
-{{/*
-Redis URL used by the control plane. redis.url is the public chart setting;
-control.config.redis.url remains supported for backwards compatibility.
-*/}}
-{{- define "pgdog-control.redis.url" -}}
-{{- $config := .Values.control.config | default dict -}}
-{{- $redisConfig := $config.redis | default dict -}}
-{{- .Values.redis.url | default $redisConfig.url | default (printf "redis://%s.%s.svc.cluster.local:6379" (include "pgdog-control.redis.fullname" .) .Release.Namespace) -}}
 {{- end }}
 
 {{/*
@@ -131,19 +117,3 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/component: control
 {{- end }}
 
-{{/*
-Labels for the redis component.
-*/}}
-{{- define "pgdog-control.redis.labels" -}}
-{{ include "pgdog-control.commonLabels" . }}
-{{ include "pgdog-control.redis.selectorLabels" . }}
-{{- end }}
-
-{{/*
-Selector labels for the redis component.
-*/}}
-{{- define "pgdog-control.redis.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "pgdog-control.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
-app.kubernetes.io/component: redis
-{{- end }}

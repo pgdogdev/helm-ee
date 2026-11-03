@@ -63,7 +63,6 @@ jobs:
               -e COOKIE_SECRET=test-cookie-secret \
               -e INCIDENT_IO_API_KEY=inc_test \
               -e RAFT_TOKEN=test-raft-token \
-              -e REDIS_URL=redis://redis.example.com:6379 \
               -v /tmp/control.toml:/tmp/control.toml:ro \
               "$CONTROL2_IMAGE" \
               /usr/local/bin/control2 configcheck --config /tmp/control.toml

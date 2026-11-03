@@ -36,7 +36,7 @@ The three somewhat complex steps are:
 
 ## Chart summary
 
-This chart installs the PgDog control plane and, by default, a Redis instance.
+This chart installs the PgDog control plane.
 
 The PgDog deployment contains the following components:
 
@@ -49,44 +49,6 @@ The PgDog deployment contains the following components:
 | Secret                                               | Secret that stores the key used to encrypt authentication cookies.                                                        |
 | Service account, Cluster role, Cluster role bindings | Service account with RBAC to access select Kube APIs. See [RBAC](#rbac) for more details.                                 |
 | NetworkPolicy                                        | Optional; restricts ingress/egress traffic. See [NetworkPolicy](#networkpolicy) for more details.                         |
-
-By default, the chart also deploys a single-replica Redis instance. The control plane uses Redis for storing metrics. Set `redis.enabled: false` and provide `redis.url` to use an external Redis instead. The chart-managed Redis has the following components:
-
-| Components | Description                                                                              |
-| ---------- | ---------------------------------------------------------------------------------------- |
-| Deployment | Redis deployment with one replica.                                                       |
-| Service    | Redis service pointing to the deployment, with selector labels configured automatically. |
-
-```yaml
-redis:
-  enabled: true
-  url: "" # defaults to redis://<release>-redis.<namespace>.svc.cluster.local:6379
-  image:
-    repository: redis
-    tag: "7-alpine"
-    pullPolicy: IfNotPresent
-    pullSecrets: []
-```
-
-| Option                    | Description                                                                                                                                         |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `redis.enabled`           | Deploy the chart-managed Redis resources (bool, default `true`).                                                                                    |
-| `redis.pdb.enabled`       | Create the Redis PodDisruptionBudget with `minAvailable: 1` (bool, default `true`).                                                                 |
-| `redis.url`               | Redis connection string written to `[redis].url` in `control.toml`. When empty, defaults to the chart-managed Redis Service (string, default `""`). |
-| `redis.image.repository`  | Redis image repository (string, default `redis`).                                                                                                   |
-| `redis.image.tag`         | Redis image tag (string, default `7-alpine`).                                                                                                       |
-| `redis.image.pullPolicy`  | Redis image pull policy (string, default `IfNotPresent`).                                                                                           |
-| `redis.image.pullSecrets` | Image pull secrets attached to the Redis pod (list, default `[]`).                                                                                  |
-
-The Redis PodDisruptionBudget blocks voluntary evictions of the single Redis replica, including during node drains and managed node upgrades. Set `redis.pdb.enabled: false` to allow these evictions while keeping Redis deployed:
-
-```yaml
-redis:
-  pdb:
-    enabled: false
-```
-
-Redis will be unavailable while its pod is replaced. The pod retains its `cluster-autoscaler.kubernetes.io/safe-to-evict: "false"` annotation.
 
 ### Raft
 
@@ -363,11 +325,10 @@ If your cluster manages RBAC out-of-band (a platform team's controller, GitOps, 
 
 ## NetworkPolicy
 
-When `networkPolicy.enabled` is `true`, the chart renders a `NetworkPolicy` for the control pod and, when `redis.enabled` is true, one for Redis, restricting traffic to what the control plane actually needs:
+When `networkPolicy.enabled` is `true`, the chart renders a `NetworkPolicy` for the control pod, restricting traffic to what the control plane actually needs:
 
 - Ingress on `control.port` from the `ingress-nginx` namespace only.
-- Egress to Redis on port 6379, to `kube-system` for DNS, and to the public internet on 5432 (Postgres) and 443 (HTTPS, e.g. the AWS/CloudWatch/RDS APIs), excluding RFC1918 private ranges. When chart-managed Redis is enabled, the Redis rule is restricted to its pods; otherwise it permits egress to any destination on port 6379 so the external Redis can be reached.
-- Chart-managed Redis accepts ingress only from the control pod and allows no egress.
+- Egress to `kube-system` for DNS, and to the public internet on 5432 (Postgres) and 443 (HTTPS, e.g. the AWS/CloudWatch/RDS APIs), excluding RFC1918 private ranges.
 
 In clusters that deny pod-to-pod traffic by default, the built-in ingress-nginx rule alone often isn't enough — for example, PgDog pods calling the control plane's API need their own rule. Use `networkPolicy.extraIngress` to add any number of additional ingress rules to the control `NetworkPolicy`:
 
@@ -389,7 +350,7 @@ networkPolicy:
 
 | Option                       | Description                                                                                                                                                                                                                                          |
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `networkPolicy.enabled`      | Render the control and, when enabled, Redis `NetworkPolicy` resources (bool, default `false`).                                                                                                                                                       |
+| `networkPolicy.enabled`      | Render the control `NetworkPolicy` (bool, default `false`).                                                                                                                                                                                          |
 | `networkPolicy.extraIngress` | Additional ingress rules appended to the control `NetworkPolicy`, on top of the built-in ingress-nginx rule. Each entry follows the standard `NetworkPolicyIngressRule` schema (`from`/`ports`) and is passed through verbatim (list, default `[]`). |
 
 ## AWS access (EKS / IRSA)
@@ -644,7 +605,6 @@ Secrets are injected as environment variables. Leave corresponding inline values
 | `COOKIE_SECRET`        | Key used to sign session and CSRF cookies.                                                                    |
 | `INCIDENT_IO_API_KEY`  | incident.io API key for creating incidents.                                                                   |
 | `RAFT_TOKEN`           | Shared token authenticating Raft peers.                                                                       |
-| `REDIS_URL`            | Redis connection URL, including credentials if required.                                                      |
 
 Create `secrets.yaml` separately from the Helm release, replacing the example values:
 
@@ -663,7 +623,6 @@ stringData:
   cookie-secret: "replace-with-a-random-key-of-at-least-32-bytes"
   incident-io-api-key: "inc_your-api-key"
   raft-token: "replace-with-a-shared-random-token"
-  redis-url: "redis://user:password@redis.example.com:6379"
 ```
 
 Apply it in the release namespace with `kubectl apply -n <release-namespace> -f secrets.yaml`, then reference its keys in `values.yaml`:
@@ -696,14 +655,9 @@ raft:
   secret:
     name: control-secrets
     tokenKey: raft-token
-redis:
-  enabled: false
-  secret:
-    name: control-secrets
-    urlKey: redis-url
 ```
 
-Cookie and Raft references disable their generated Secrets. A Redis reference omits the default URL; set `redis.enabled: false` for external Redis. Raft requires `raft.enabled: true`. The last four variables require a control image containing commit `80895477` or later.
+Cookie and Raft references disable their generated Secrets. Raft requires `raft.enabled: true`. The last three variables require a control image containing commit `80895477` or later.
 
 After rotating a Secret, run `kubectl rollout restart deployment/<release>-control` (use `statefulset` when Raft is enabled).
 
@@ -837,31 +791,6 @@ control:
 | ----------- | ---------------------------------------------------------------- |
 | `bot_token` | Slack bot token with `chat:write` permission (string, optional). |
 | `channel`   | Slack channel ID or name for status updates (string, optional).  |
-
-### Redis persistence
-
-`control.config.redis` controls how often the in-memory store is snapshotted to Redis between process restarts. The chart provisions an in-cluster Redis (`<release>-redis`) by default and writes its connection string to `[redis].url` in `control.toml`.
-
-```yaml
-control:
-  config:
-    redis:
-      save_interval_secs: 60
-```
-
-| Option               | Description                                                                     |
-| -------------------- | ------------------------------------------------------------------------------- |
-| `save_interval_secs` | How often the background task snapshots the store to Redis (int, default `60`). |
-
-To use an external Redis, disable all chart-managed Redis resources and set its URL:
-
-```yaml
-redis:
-  enabled: false
-  url: redis://my-redis.cache:6379
-```
-
-For backwards compatibility, `control.config.redis.url` is still accepted, but `redis.url` is preferred.
 
 ## Examples
 

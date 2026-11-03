@@ -1,9 +1,0 @@
-ingress:
-  enabled: false
-
-networkPolicy:
-  enabled: true
-
-redis:
-  enabled: false
-  url: redis://external-redis.example.com:6379

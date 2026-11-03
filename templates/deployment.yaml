@@ -189,15 +189,6 @@ spec:
         {{- end }}
         {{- end }}
         {{- end }}
-        {{- with .Values.redis.secret }}
-        {{- if .urlKey }}
-        - name: REDIS_URL
-          valueFrom:
-            secretKeyRef:
-              name: {{ required "redis.secret.name is required when urlKey is set" .name | quote }}
-              key: {{ .urlKey | quote }}
-        {{- end }}
-        {{- end }}
         {{- with $auth.github }}
         {{- with .secret }}
         # OAuth credentials sourced from an existing Secret. The control
