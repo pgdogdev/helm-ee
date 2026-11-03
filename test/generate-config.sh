@@ -12,13 +12,15 @@ fi
 
 VALUES_FILE="$1"
 
-output=$(helm template test-release "$CHART_DIR" -f "$VALUES_FILE" \
-  | yq -r 'select(.kind == "ConfigMap" and has("data") and .data["control.toml"]) | .data["control.toml"]')
+rendered=$(helm template test-release "$CHART_DIR" -f "$VALUES_FILE")
+configmap='select(.kind == "ConfigMap" and has("data") and (.data | has("control.toml")))'
 
-if [ -z "$output" ]; then
+if [ -z "$(yq -r "$configmap | .metadata.name" <<< "$rendered")" ]; then
   echo "FAIL: control.toml not found in rendered ConfigMap"
   exit 1
 fi
+
+output=$(yq -r "$configmap | .data[\"control.toml\"]" <<< "$rendered")
 
 if [ -z "$2" ]; then
   echo "$output"
