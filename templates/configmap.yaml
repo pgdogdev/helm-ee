@@ -247,13 +247,3 @@ data:
     channel = {{ .channel | quote }}
     {{- end }}
     {{- end }}
-
-    {{- $redis := $config.redis | default dict }}
-
-    [redis]
-    {{- if or .Values.redis.url $redis.url (not ((.Values.redis.secret | default dict).urlKey)) }}
-    url = {{ include "pgdog-control.redis.url" . | quote }}
-    {{- end }}
-    {{- with $redis.save_interval_secs }}
-    save_interval_secs = {{ . }}
-    {{- end }}
