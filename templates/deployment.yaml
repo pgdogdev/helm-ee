@@ -89,7 +89,15 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- if .Values.control.rbac.existingServiceAccount }}
       {{- if .Values.control.rbac.create }}
+      {{- fail "control.rbac.existingServiceAccount runs the pod without the chart's RBAC; set control.rbac.create=false" }}
+      {{- end }}
+      {{- if .Values.control.aws.roleArn }}
+      {{- fail "control.aws.roleArn annotates the chart's ServiceAccount; annotate control.rbac.existingServiceAccount instead" }}
+      {{- end }}
+      serviceAccountName: {{ .Values.control.rbac.existingServiceAccount }}
+      {{- else if .Values.control.rbac.create }}
       serviceAccountName: {{ include "pgdog-control.control.serviceAccountName" . }}
       automountServiceAccountToken: true
       {{- else }}
