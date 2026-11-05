@@ -317,11 +317,23 @@ In the above example, the dashboard can see workloads in every namespace, but it
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `control.rbac.create`             | Render the ServiceAccount and the RBAC bindings. When `false`, no RBAC is rendered and the pod runs without a mounted API token. The Kubernetes views in the dashboard will be empty (bool, default `true`). |
 | `control.rbac.serviceAccountName` | Override the generated ServiceAccount name. Empty falls back to `<release>-control` (string, default `""`).                                                                                                  |
+| `control.rbac.existingServiceAccount` | Run the pod as this existing ServiceAccount. Requires `create: false`; see [Disabling RBAC](#disabling-rbac) (string, default `""`).                                                                     |
 | `control.rbac.writeNamespaces`    | Namespaces where the control plane is allowed to manage PgDog workloads. Each entry produces one Role + RoleBinding pair. Empty means the install is read-only everywhere (list, default `[]`).              |
 
 ### Disabling RBAC
 
-If your cluster manages RBAC out-of-band (a platform team's controller, GitOps, an admission policy), set `control.rbac.create: false`. The chart then renders no ServiceAccount, no ClusterRole/Binding, and no Role/Bindings, and the deployment runs the pod with `automountServiceAccountToken: false`. The dashboard still serves the UI, but every Kubernetes-backed view will be empty until you bind an externally-managed ServiceAccount with equivalent permissions to the pod yourself.
+If your cluster manages RBAC out-of-band (a platform team's controller, GitOps, an admission policy), set `control.rbac.create: false`. The chart then renders no ServiceAccount, no ClusterRole/Binding, and no Role/Bindings, and the deployment runs the pod with `automountServiceAccountToken: false`. The dashboard still serves the UI, but every Kubernetes-backed view will be empty.
+
+To run the pod as a ServiceAccount you manage, with RBAC bound out of band, an IRSA role, or both, name it in `control.rbac.existingServiceAccount`:
+
+```yaml
+control:
+  rbac:
+    create: false
+    existingServiceAccount: pgdog-control
+```
+
+The ServiceAccount must exist before `helm install`. The chart leaves `automountServiceAccountToken` unset on the pod, so the ServiceAccount's own setting decides whether the pod gets a Kubernetes API token: keep it enabled for the Kubernetes views, or set it to `false` when the pod only needs IRSA. `control.aws.roleArn` is rejected in this mode; annotate the ServiceAccount with `eks.amazonaws.com/role-arn` yourself.
 
 ## NetworkPolicy
 
@@ -365,7 +377,7 @@ This needs three things, only one of which is in the chart:
 
 ### Trust policy
 
-The role must trust the cluster's OIDC provider and scope the trust to the control plane's ServiceAccount. That subject is `system:serviceaccount:<release-namespace>:<release>-control`, or whatever `control.rbac.serviceAccountName` is if you overrode it. Confirm the exact subject after `helm install` with:
+The role must trust the cluster's OIDC provider and scope the trust to the control plane's ServiceAccount. That subject is `system:serviceaccount:<release-namespace>:<release>-control`, or whatever `control.rbac.serviceAccountName` or `control.rbac.existingServiceAccount` names. Confirm the exact subject after `helm install` with:
 
 ```sh
 kubectl -n <release-namespace> get sa \

@@ -22,4 +22,31 @@ grep -q '^    slow_queries_threshold = 2500$' <<< "$full_render"
 grep -q '^    slow_queries = true$' <<< "$full_render"
 
 echo ""
+echo "==> Verifying an existing ServiceAccount without RBAC..."
+control_sa() {
+  helm template test-release "$CHART_DIR" "$@" \
+    | yq -o=json -I=0 'select(.kind == "Deployment" and .metadata.name == "test-release-control") | .spec.template.spec | {"sa": .serviceAccountName, "automount": .automountServiceAccountToken}'
+}
+sa_render=$(helm template test-release "$CHART_DIR" -f "$TEST_DIR/values-existing-service-account.yaml")
+if [ "$(control_sa -f "$TEST_DIR/values-existing-service-account.yaml")" != '{"sa":"pgdog-control-aws","automount":null}' ]; then
+  echo "control pod does not run as the existing ServiceAccount, or overrides its token setting" >&2
+  exit 1
+fi
+if grep -qE '^kind: (ServiceAccount|ClusterRole|ClusterRoleBinding)$' <<< "$sa_render"; then
+  echo "RBAC resources rendered while control.rbac.create=false" >&2
+  exit 1
+fi
+# Opt-in only: without existingServiceAccount, create=false keeps the default SA and ignores roleArn.
+if [ "$(control_sa --set control.rbac.create=false --set control.rbac.serviceAccountName=foo --set control.aws.roleArn=arn:aws:iam::123456789012:role/x)" != '{"sa":null,"automount":false}' ]; then
+  echo "create=false without existingServiceAccount changed the control pod's ServiceAccount" >&2
+  exit 1
+fi
+for conflict in "control.rbac.create=true" "control.aws.roleArn=arn:aws:iam::123456789012:role/x"; do
+  if helm template test-release "$CHART_DIR" -f "$TEST_DIR/values-existing-service-account.yaml" --set "$conflict" >/dev/null 2>&1; then
+    echo "existingServiceAccount rendered with $conflict" >&2
+    exit 1
+  fi
+done
+
+echo ""
 echo "==> All chart tests passed!"
