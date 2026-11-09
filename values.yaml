@@ -62,6 +62,12 @@ control:
     # Override the ServiceAccount name. When empty, falls back to
     # `<release>-control`.
     serviceAccountName: ""
+    # Run the control pod as this existing ServiceAccount instead, e.g. one
+    # with RBAC managed out of band or annotated for EKS IRSA. Requires
+    # create: false; the ServiceAccount must exist before install and carry
+    # its own role annotation (roleArn is not used). Its own
+    # automountServiceAccountToken decides whether the pod gets an API token.
+    existingServiceAccount: ""
     # Namespaces where the control plane is allowed to create/update/patch/delete
     # workloads (deployments, statefulsets, configmaps, secrets, services).
     # A Role + RoleBinding is generated in each listed namespace. Empty
