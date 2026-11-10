@@ -1,0 +1,4 @@
+# Extra annotations on the control pods.
+control:
+  podAnnotations:
+    karpenter.sh/do-not-disrupt: "24h"

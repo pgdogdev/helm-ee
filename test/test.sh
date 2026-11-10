@@ -49,4 +49,19 @@ for conflict in "control.rbac.create=true" "control.aws.roleArn=arn:aws:iam::123
 done
 
 echo ""
+echo "==> Verifying control pod annotations..."
+annotations=$(helm template test-release "$CHART_DIR" -f "$TEST_DIR/values-pod-annotations.yaml" \
+  | yq -o=json -I=0 'select(.kind == "Deployment" and .metadata.name == "test-release-control") | .spec.template.metadata.annotations | with_entries(select(.key | test("^checksum/") | not))')
+if [ "$annotations" != '{"meta.helm.sh/release-name":"test-release","meta.helm.sh/release-namespace":"default","karpenter.sh/do-not-disrupt":"24h"}' ]; then
+  echo "control.podAnnotations not rendered on the control pods: $annotations" >&2
+  exit 1
+fi
+raft_annotation=$(helm template test-release "$CHART_DIR" -f "$TEST_DIR/values-raft.yaml" -f "$TEST_DIR/values-pod-annotations.yaml" \
+  | yq -r 'select(.kind == "StatefulSet") | .spec.template.metadata.annotations."karpenter.sh/do-not-disrupt"')
+if [ "$raft_annotation" != "24h" ]; then
+  echo "control.podAnnotations not rendered on the raft StatefulSet pods: $raft_annotation" >&2
+  exit 1
+fi
+
+echo ""
 echo "==> All chart tests passed!"
