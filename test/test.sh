@@ -64,4 +64,6 @@ if [ "$raft_annotation" != "24h" ]; then
 fi
 
 echo ""
+bash "$TEST_DIR/test-mcp.sh"
+
 echo "==> All chart tests passed!"

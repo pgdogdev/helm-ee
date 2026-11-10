@@ -1,0 +1,7 @@
+control:
+  config:
+    mcp:
+      enabled: true
+      tokens:
+        - test-mcp-token
+        - test-mcp._~+/=token

@@ -162,6 +162,15 @@ spec:
           value: {{ . | quote }}
         {{- end }}
         {{- $auth := (.Values.control.config | default dict).auth | default dict }}
+        {{- with ((.Values.control.config | default dict).mcp | default dict).secret }}
+        {{- if .tokensKey }}
+        - name: MCP_TOKENS
+          valueFrom:
+            secretKeyRef:
+              name: {{ required "control.config.mcp.secret.name is required when tokensKey is set" .name | quote }}
+              key: {{ .tokensKey | quote }}
+        {{- end }}
+        {{- end }}
         {{- with $auth.secret }}
         {{- if .tokensKey }}
         - name: AUTH_TOKENS
