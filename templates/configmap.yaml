@@ -36,6 +36,17 @@ data:
     {{- end }}
     {{- end }}
 
+    {{- with $config.mcp }}
+
+    [mcp]
+    {{- if hasKey . "enabled" }}
+    enabled = {{ .enabled }}
+    {{- end }}
+    {{- if hasKey . "tokens" }}
+    tokens = [{{ range $i, $token := .tokens }}{{ if $i }}, {{ end }}{{ $token | quote }}{{ end }}]
+    {{- end }}
+    {{- end }}
+
     {{- with $config.rds }}
     [rds]
     {{- with .refresh_interval_secs }}

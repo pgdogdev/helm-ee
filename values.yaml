@@ -119,6 +119,16 @@ control:
       #     # - ::1/128
       #     # - fc00::/7
       #     allowed_cidrs: []
+    mcp: {}
+      # Enable the bearer-authenticated /mcp endpoint. Disabled by default.
+      # enabled: false
+      # Optional configured tokens, written to the control.toml ConfigMap.
+      # Omit or leave empty to use tokens managed through Raft in System → MCP.
+      # Authentication remains required when the list is empty.
+      # tokens: []
+      # secret:
+      #   name: ""       # existing Secret in the release namespace
+      #   tokensKey: ""  # comma-separated list -> MCP_TOKENS; leave tokens unset
     rds: {}
       # refresh_interval_secs: 60
       # Experimental: do not enable in production yet.

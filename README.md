@@ -313,12 +313,12 @@ control:
 
 In the above example, the dashboard can see workloads in every namespace, but it can only spin up or tear down PgDog deployments in `pgdog-prod` and `pgdog-staging`. Leaving `writeNamespaces` empty produces a fully read-only install. The dashboard still works, but the "deploy" actions will be rejected by the API server.
 
-| Option                            | Description                                                                                                                                                                                                  |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `control.rbac.create`             | Render the ServiceAccount and the RBAC bindings. When `false`, no RBAC is rendered and the pod runs without a mounted API token. The Kubernetes views in the dashboard will be empty (bool, default `true`). |
-| `control.rbac.serviceAccountName` | Override the generated ServiceAccount name. Empty falls back to `<release>-control` (string, default `""`).                                                                                                  |
-| `control.rbac.existingServiceAccount` | Run the pod as this existing ServiceAccount. Requires `create: false`; see [Disabling RBAC](#disabling-rbac) (string, default `""`).                                                                     |
-| `control.rbac.writeNamespaces`    | Namespaces where the control plane is allowed to manage PgDog workloads. Each entry produces one Role + RoleBinding pair. Empty means the install is read-only everywhere (list, default `[]`).              |
+| Option                                | Description                                                                                                                                                                                                  |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `control.rbac.create`                 | Render the ServiceAccount and the RBAC bindings. When `false`, no RBAC is rendered and the pod runs without a mounted API token. The Kubernetes views in the dashboard will be empty (bool, default `true`). |
+| `control.rbac.serviceAccountName`     | Override the generated ServiceAccount name. Empty falls back to `<release>-control` (string, default `""`).                                                                                                  |
+| `control.rbac.existingServiceAccount` | Run the pod as this existing ServiceAccount. Requires `create: false`; see [Disabling RBAC](#disabling-rbac) (string, default `""`).                                                                         |
+| `control.rbac.writeNamespaces`        | Namespaces where the control plane is allowed to manage PgDog workloads. Each entry produces one Role + RoleBinding pair. Empty means the install is read-only everywhere (list, default `[]`).              |
 
 ### Disabling RBAC
 
@@ -559,6 +559,27 @@ If `allowed_cidrs` is omitted, the control plane defaults to private IPv4 ranges
 | `api.pgdog.ip_allowlist.enabled`       | Enables source-IP checks for `/api/v2/*` PgDog endpoints (bool, default `false`).                                                                                                                |
 | `api.pgdog.ip_allowlist.allowed_cidrs` | CIDR ranges allowed to call `/api/v2/*`. Invalid CIDRs cause protected requests to be rejected until the config is fixed (list of strings, default private IPv4 ranges, loopback, and IPv6 ULA). |
 
+### MCP
+
+Set `control.config.mcp` to enable the `/mcp` endpoint for MCP clients. With Raft enabled, tokens can be generated and removed in System / MCP without configuring any tokens at startup:
+
+```yaml
+raft:
+  enabled: true
+control:
+  config:
+    mcp:
+      enabled: true
+      tokens: []
+```
+
+Clients authenticate with `Authorization: Bearer <token>`. These tokens are separate from `control.config.auth.tokens`, which protect the PgDog API. The MCP endpoint uses the control plane's existing port and ingress.
+
+| Option        | Description                                                                                                               |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `mcp.enabled` | Enables the `/mcp` endpoint (bool, default `false`).                                                                      |
+| `mcp.tokens`  | Optional configured MCP bearer tokens. When omitted, defaults to comma-separated `MCP_TOKENS`, or an empty list if unset. |
+
 ### Authentication
 
 Set `control.config.auth.tokens` to restrict requests to the PgDog API to the listed Bearer tokens:
@@ -610,6 +631,7 @@ Secrets are injected as environment variables. Leave corresponding inline values
 | Environment variable   | Description                                                                                                   |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `AUTH_TOKENS`          | Comma-separated Bearer token allowlist for `/api/v2`, sourced through `control.config.auth.secret.tokensKey`. |
+| `MCP_TOKENS`           | Comma-separated MCP bearer tokens, sourced through `control.config.mcp.secret.tokensKey`.                     |
 | `GITHUB_CLIENT_ID`     | GitHub OAuth application ID.                                                                                  |
 | `GITHUB_CLIENT_SECRET` | GitHub OAuth application secret.                                                                              |
 | `GOOGLE_CLIENT_ID`     | Google OAuth application ID.                                                                                  |
@@ -628,6 +650,7 @@ metadata:
 type: Opaque
 stringData:
   auth-tokens: "token-1,token-2"
+  mcp-tokens: "mcp-token-1,mcp-token-2"
   github-client-id: "your-github-client-id"
   github-client-secret: "your-github-client-secret"
   google-client-id: "your-google-client-id"
@@ -642,6 +665,11 @@ Apply it in the release namespace with `kubectl apply -n <release-namespace> -f 
 ```yaml
 control:
   config:
+    mcp:
+      enabled: true
+      secret:
+        name: control-secrets
+        tokensKey: mcp-tokens
     auth:
       secret:
         name: control-secrets
