@@ -59,6 +59,9 @@ spec:
         # pods.
         checksum/aws-creds: {{ include (print $.Template.BasePath "/aws-secret.yaml") . | sha256sum }}
         {{- end }}
+        {{- with .Values.control.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       labels:
         {{- include "pgdog-control.selectorLabels" . | nindent 8 }}
     spec:

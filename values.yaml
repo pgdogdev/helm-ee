@@ -81,6 +81,8 @@ control:
     limits:
       memory: "4Gi"
       cpu: "1000m"
+  # Extra annotations on the control pods, e.g. karpenter.sh/do-not-disrupt.
+  podAnnotations: {}
   # Pod-level securityContext for the control deployment.
   # Defaults are PSS Restricted compliant.
   podSecurityContext:
