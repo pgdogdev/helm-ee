@@ -798,6 +798,7 @@ control:
       stale_after_secs: 5
       evict_after_secs: 60
       metrics_retention_secs: 300
+      historical_metrics_retention_secs: 172800
       query_history_limit: 1000
       query_plans_limit: 100
       slow_queries_threshold: 5000
@@ -809,7 +810,8 @@ control:
 | `tick_secs`              | How often the sweep task wakes up. Sets the shortest possible reaction time for stale and evict transitions (int, default `1`).                                 |
 | `stale_after_secs`       | Instance is marked stale if its newest metric is older than this. The UI dims it but keeps it visible (int, default `5`).                                       |
 | `evict_after_secs`       | Instance is dropped from the store entirely if its newest metric is older than this (int, default `60`).                                                        |
-| `metrics_retention_secs` | How much per-instance metric history is kept in memory. Older points are dropped as new ones arrive (int, default `300`).                                       |
+| `metrics_retention_secs` | How much per-instance real-time metric history is kept in memory. Older points are dropped as new ones arrive (int, default `300`).                             |
+| `historical_metrics_retention_secs` | How long historical one-minute metrics, including QoS, are kept in memory (int, default `172800`, or 48 hours).                                      |
 | `query_history_limit`    | Per-token historical query store capacity. Oldest deduped query entries are evicted first once the limit is reached (int, default `1000`).                      |
 | `query_plans_limit`      | Per-token query-plan capacity. Plans with the oldest creation time are evicted first once the limit is reached; `0` disables plan storage (int, default `100`). |
 | `slow_queries_threshold` | Minimum query duration, in milliseconds, for classifying a query as slow (int, default `5000`).                                                                 |

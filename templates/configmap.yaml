@@ -112,6 +112,9 @@ data:
     {{- with .metrics_retention_secs }}
     metrics_retention_secs = {{ . }}
     {{- end }}
+    {{- if hasKey . "historical_metrics_retention_secs" }}
+    historical_metrics_retention_secs = {{ .historical_metrics_retention_secs }}
+    {{- end }}
     {{- if hasKey . "query_history_limit" }}
     query_history_limit = {{ .query_history_limit }}
     {{- end }}
