@@ -36,6 +36,7 @@ control:
       evict_after_secs: 60
       process_notify_interval_secs: 30
       metrics_retention_secs: 600
+      historical_metrics_retention_secs: 86400
       query_history_limit: 500
       query_plans_limit: 75
       slow_queries_threshold: 2500
