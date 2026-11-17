@@ -215,6 +215,27 @@ data:
     allowed_domains = [{{ range $i, $d := . }}{{ if $i }}, {{ end }}{{ $d | quote }}{{ end }}]
     {{- end }}
     {{- end }}
+    {{- if hasKey $auth "iap" }}
+
+    [auth.iap]
+    {{- $iap := $auth.iap | default dict }}
+    audience = {{ required "control.config.auth.iap.audience is required when IAP is configured" $iap.audience | quote }}
+    {{- if hasKey $iap "assertion_header" }}
+    assertion_header = {{ $iap.assertion_header | quote }}
+    {{- end }}
+    {{- if hasKey $iap "issuer" }}
+    issuer = {{ $iap.issuer | quote }}
+    {{- end }}
+    {{- if hasKey $iap "max_token_length" }}
+    max_token_length = {{ $iap.max_token_length }}
+    {{- end }}
+    {{- if hasKey $iap "key_url" }}
+    key_url = {{ $iap.key_url | quote }}
+    {{- end }}
+    {{- if hasKey $iap "clock_skew_secs" }}
+    clock_skew_secs = {{ $iap.clock_skew_secs }}
+    {{- end }}
+    {{- end }}
     {{- end }}
 
     {{- with $config.alerts }}

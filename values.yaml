@@ -171,6 +171,17 @@ control:
       #   name: ""                      # existing Secret in the release namespace
       #   tokensKey: ""                 # comma-separated list -> AUTH_TOKENS; leave tokens unset
       #   cookieSecretKey: ""           # key -> COOKIE_SECRET; leave cookie_secret unset
+      # iap:
+      #   # Configuring IAP requires signed assertions for browser requests
+      #   # and takes precedence over GitHub and Google OAuth.
+      #   # Required: exact Signed Header JWT Audience from GCP IAP settings.
+      #   audience: "/projects/123456789/global/backendServices/987654321"
+      #   # Optional settings below show the control plane defaults.
+      #   assertion_header: "x-goog-iap-jwt-assertion"
+      #   issuer: "https://cloud.google.com/iap"
+      #   max_token_length: 16384
+      #   key_url: "https://www.gstatic.com/iap/verify/public_key-jwk"
+      #   clock_skew_secs: 30
       # redirect_base_url: ""           # e.g. https://control.example.com
       # cookie_secure: true
       # session_max_age_days: 30

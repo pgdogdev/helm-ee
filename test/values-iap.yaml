@@ -1,0 +1,10 @@
+control:
+  config:
+    auth:
+      iap:
+        audience: "/projects/123456789/global/backendServices/987654321"
+        assertion_header: "x-goog-iap-jwt-assertion"
+        issuer: "https://cloud.google.com/iap"
+        max_token_length: 8192
+        key_url: "https://www.gstatic.com/iap/verify/public_key-jwk"
+        clock_skew_secs: 0
