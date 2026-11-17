@@ -593,7 +593,7 @@ control:
 
 See [Secrets](#secrets) on how to configure these using a Kube `Secret`.
 
-`control.config.auth` wires up the OAuth-backed login flow for the dashboard. GitHub and Google are supported and can be enabled side by side. At least one needs to be configured, or the dashboard will be **accessible by anyone with the URL**:
+`control.config.auth` wires up the OAuth-backed login flow for the dashboard. GitHub and Google are supported and can be enabled side by side. Configure at least one provider or IAP (below), or the dashboard will be **accessible by anyone with the URL**:
 
 ```yaml
 control:
@@ -623,6 +623,16 @@ control:
 | `github.allowed_orgs`                       | If non-empty, only users whose membership the GitHub API reports in one of these orgs are allowed to log in. The `read:org` scope is added automatically when this list is non-empty (list of strings, default `[]`).                                                                                                                                              |
 | `google.client_id` / `google.client_secret` | OAuth credentials from the Google Cloud OAuth client. Required to enable the Google login route.                                                                                                                                                                                                                                                                   |
 | `google.allowed_domains`                    | If non-empty, only users whose verified Google email's domain (the part after `@`, compared case-insensitively) appears in this list are allowed to log in (list of strings, default `[]`).                                                                                                                                                                        |
+
+For a dashboard behind Google IAP, set `control.config.auth.iap.audience` to the exact Signed Header JWT Audience from your GCP IAP settings. This requires signed IAP assertions for browser requests and takes precedence over GitHub and Google OAuth:
+
+```yaml
+control:
+  config:
+    auth:
+      iap:
+        audience: "/projects/123456789/global/backendServices/987654321"
+```
 
 ### Secrets
 
