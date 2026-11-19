@@ -31,6 +31,7 @@ raft:
     mountPath: /var/lib/pgdog-control/raft
 
 control:
+  # Port used by the Service, probes, and Raft peers.
   port: 8080
   aws:
     # IRSA role for AWS API access (RDS/CloudWatch). When set, the
@@ -104,6 +105,9 @@ control:
   # unset falls back to the Rust-side default. Field names match the TOML
   # keys (snake_case) so values are passed through verbatim.
   config:
+    # host: "0.0.0.0" # Defaults to HOST, or 0.0.0.0 when unset.
+    # port: 8080 # Defaults to PORT, or 8080 when unset; must match control.port.
+    # workers: 2 # Number of Actix Web workers; must be positive.
     # environment: production # e.g. production or staging
     api: {}
       # pgdog:
@@ -218,6 +222,7 @@ control:
       #   cpu: 90.0
       #   memory: 2048
       #   server_connections: 100
+      #   checkout_timeouts: 10 # Timeouts/sec, averaged over the window and summed across running instances.
       #   slow_queries: false
       # incident_io:
       #   api_key: ""
