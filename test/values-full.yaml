@@ -1,4 +1,5 @@
 control:
+  port: 9090
   aws:
     roleArn: arn:aws:iam::123456789012:role/pgdog-control
     region: us-west-2
@@ -7,6 +8,9 @@ control:
       - pgdog
       - pgdog-staging
   config:
+    host: "0.0.0.0"
+    port: 9090
+    workers: 4
     environment: production
     api:
       pgdog:
@@ -71,6 +75,7 @@ control:
         cpu: 90.0
         memory: 2048
         server_connections: 100
+        checkout_timeouts: 10
         slow_queries: true
       incident_io:
         api_key: incident-token

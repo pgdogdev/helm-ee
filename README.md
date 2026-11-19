@@ -528,9 +528,15 @@ control:
 
 ## Configuration
 
-The control plane reads its runtime configuration from a TOML file at `/etc/pgdog-control/control.toml`. The chart materializes that file from `control.config` in `values.yaml`. Every nested key under `control.config` becomes a TOML table, and field names map straight through. Every section and every field is optional; anything you omit falls back to a hardcoded default, so a minimal install only sets the handful of values.
+The control plane reads its runtime configuration from a TOML file at `/etc/pgdog-control/control.toml`. The chart materializes that file from `control.config` in `values.yaml`. Every nested key under `control.config` becomes a TOML table, and field names map straight through. Every section and every field is optional; anything you omit falls back to a hardcoded default, so a minimal install only sets a handful of values.
 
 Each subsection below covers one TOML section.
+
+| Option                   | Description                                                                    |
+| ------------------------ | ------------------------------------------------------------------------------ |
+| `control.config.host`    | HTTP listener host (string, defaults to `HOST`, or `0.0.0.0` when unset).      |
+| `control.config.port`    | HTTP listener port (int, defaults to `PORT`, or `8080` when unset or invalid). |
+| `control.config.workers` | Number of Actix Web workers (positive int, default `2`).                       |
 
 ### PgDog API IP Allowlist
 
@@ -781,6 +787,7 @@ control:
         cpu: 90.0
         memory: 2048
         server_connections: 100
+        checkout_timeouts: 10
         slow_queries: true
       incident_io:
         api_key: inc_live_xxx
@@ -793,6 +800,7 @@ control:
 | `thresholds.cpu`                | CPU usage percentage. Must be between `0.0` and `100.0`, inclusive (float, optional).                                       |
 | `thresholds.memory`             | Memory used, in megabytes (int, optional).                                                                                  |
 | `thresholds.server_connections` | Number of open server connections (int, optional).                                                                          |
+| `thresholds.checkout_timeouts`  | Checkout timeouts per second, averaged over the evaluation window and summed across running instances (int, optional).      |
 | `thresholds.slow_queries`       | Create incidents for queries whose duration reaches `store.slow_queries_threshold` (bool, default `false`).                 |
 | `incident_io.api_key`           | incident.io API key with permission to create incidents. Missing `incident_io` disables the integration (string, optional). |
 
@@ -815,17 +823,17 @@ control:
       autoreload: immediately # or in_sync, or off
 ```
 
-| Option                   | Description                                                                                                                                                     |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tick_secs`              | How often the sweep task wakes up. Sets the shortest possible reaction time for stale and evict transitions (int, default `1`).                                 |
-| `stale_after_secs`       | Instance is marked stale if its newest metric is older than this. The UI dims it but keeps it visible (int, default `5`).                                       |
-| `evict_after_secs`       | Instance is dropped from the store entirely if its newest metric is older than this (int, default `60`).                                                        |
-| `metrics_retention_secs` | How much per-instance real-time metric history is kept in memory. Older points are dropped as new ones arrive (int, default `300`).                             |
-| `historical_metrics_retention_secs` | How long historical one-minute metrics, including QoS, are kept in memory (int, default `172800`, or 48 hours).                                      |
-| `query_history_limit`    | Per-token historical query store capacity. Oldest deduped query entries are evicted first once the limit is reached (int, default `1000`).                      |
-| `query_plans_limit`      | Per-token query-plan capacity. Plans with the oldest creation time are evicted first once the limit is reached; `0` disables plan storage (int, default `100`). |
-| `slow_queries_threshold` | Minimum query duration, in milliseconds, for classifying a query as slow (int, default `5000`).                                                                 |
-| `autoreload`             | Automatically enqueue `reload_configuration` for instances that report config drift (enum, default `off`, available options: `off`, `immediately`, `in_sync`).  |
+| Option                              | Description                                                                                                                                                     |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tick_secs`                         | How often the sweep task wakes up. Sets the shortest possible reaction time for stale and evict transitions (int, default `1`).                                 |
+| `stale_after_secs`                  | Instance is marked stale if its newest metric is older than this. The UI dims it but keeps it visible (int, default `5`).                                       |
+| `evict_after_secs`                  | Instance is dropped from the store entirely if its newest metric is older than this (int, default `60`).                                                        |
+| `metrics_retention_secs`            | How much per-instance real-time metric history is kept in memory. Older points are dropped as new ones arrive (int, default `300`).                             |
+| `historical_metrics_retention_secs` | How long historical one-minute metrics, including QoS, are kept in memory (int, default `172800`, or 48 hours).                                                 |
+| `query_history_limit`               | Per-token historical query store capacity. Oldest deduped query entries are evicted first once the limit is reached (int, default `1000`).                      |
+| `query_plans_limit`                 | Per-token query-plan capacity. Plans with the oldest creation time are evicted first once the limit is reached; `0` disables plan storage (int, default `100`). |
+| `slow_queries_threshold`            | Minimum query duration, in milliseconds, for classifying a query as slow (int, default `5000`).                                                                 |
+| `autoreload`                        | Automatically enqueue `reload_configuration` for instances that report config drift (enum, default `off`, available options: `off`, `immediately`, `in_sync`).  |
 
 ### Slack Notifications
 
